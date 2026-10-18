@@ -1,5 +1,3 @@
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial";
@@ -65,23 +63,6 @@ export class TestScene {
         this.patternCompute.setStorageTexture("patternTexture", this.patternTexture);
         this.patternCompute.setUniformBuffer("parameters", this.patternParameters);
 
-        this.skyMaterial = new ShaderMaterial("testSky", scene, { vertex: "testSky", fragment: "testSky" }, {
-            attributes: ["position"],
-            uniforms: [],
-            shaderLanguage: ShaderLanguage.WGSL,
-        });
-        this.skyMaterial.setUniformBuffer("frame", frameUniforms.buffer);
-        this.skyMaterial.backFaceCulling = false;
-        this.skyMaterial.disableDepthWrite = true;
-        this.skyMesh = new Mesh("testSkyTriangle", scene);
-        const skyVertexData = new VertexData();
-        skyVertexData.positions = [-1, -1, 0, 3, -1, 0, -1, 3, 0];
-        skyVertexData.indices = [0, 1, 2];
-        skyVertexData.applyToMesh(this.skyMesh);
-        this.skyMesh.material = this.skyMaterial;
-        this.skyMesh.alwaysSelectAsActiveMesh = true;
-        this.skyMesh.renderingGroupId = 1;
-
         this.groundMesh = CreateGround("testGround", { width: 400, height: 400, subdivisions: 1 }, scene);
         this.groundMaterial = createSurfaceMaterial(scene, "testGroundMaterial", frameUniforms, this.patternTexture, [1, 1, 1], 4);
         this.groundMaterial.setMatrix("previousWorld", this.groundMesh.computeWorldMatrix(true));
@@ -132,11 +113,11 @@ export class TestScene {
     }
 
     get allMaterials() {
-        return [this.skyMaterial, this.groundMaterial, this.pillarMaterial, ...this.movingBoxes.map((box) => box.material)];
+        return [this.groundMaterial, this.pillarMaterial, ...this.movingBoxes.map((box) => box.material)];
     }
 
     get allMeshes() {
-        return [this.skyMesh, this.groundMesh, this.pillarMesh, ...this.movingBoxes.map((box) => box.mesh)];
+        return [this.groundMesh, this.pillarMesh, ...this.movingBoxes.map((box) => box.mesh)];
     }
 
     placeMovingBoxes(timeSeconds) {

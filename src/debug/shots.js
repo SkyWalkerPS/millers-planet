@@ -1,4 +1,4 @@
-import { openingYawRadians } from "../world/skyLayout.js";
+import { gargantuaAzimuthRadians, gargantuaElevationRadians, openingYawRadians } from "../world/skyLayout.js";
 
 const degreesToRadians = Math.PI / 180;
 
@@ -34,6 +34,34 @@ export const shotDefinitions = {
         timeSeconds: 10,
         verticalFieldOfViewDegrees: 56,
         pose: () => orbitPose(0, 1, 18, 160, -30, 14),
+    },
+    "sky-gargantua": {
+        phase: 3,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 56,
+        pose: () => ({ position: [0, 1.7, 0], yawRadians: gargantuaAzimuthRadians, pitchRadians: 10 * degreesToRadians }),
+    },
+    "sky-gargantua-tele": {
+        phase: 3,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 20,
+        pose: () => ({ position: [0, 1.7, 0], yawRadians: gargantuaAzimuthRadians, pitchRadians: gargantuaElevationRadians }),
+    },
+    "sky-away": {
+        phase: 3,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 56,
+        pose: () => ({ position: [0, 1.7, 0], yawRadians: gargantuaAzimuthRadians + Math.PI, pitchRadians: 8 * degreesToRadians }),
+    },
+    "sky-zenith": {
+        phase: 3,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 56,
+        pose: () => ({ position: [0, 1.7, 0], yawRadians: gargantuaAzimuthRadians + 0.6, pitchRadians: 60 * degreesToRadians }),
     },
     "spike-ground": {
         phase: 2,

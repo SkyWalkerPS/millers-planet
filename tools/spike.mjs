@@ -187,7 +187,7 @@ const order = (name) => {
 rows.sort((first, second) => order(first.name) - order(second.name));
 console.log(`\n${formatTable(['item', 'result', 'details'], rows.map((row) => [row.name, row.deferred ? 'DEFERRED' : row.pass ? (row.fallbackUsed ? `PASS (fallback: ${row.fallbackUsed})` : 'PASS') : 'FAIL', row.details.length > 220 ? `${row.details.slice(0, 217)}...` : row.details]), { rightAlignFrom: 99 })}`);
 
-const evidencePath = path.join(evidenceDirectory(), '2-spike.json');
+const evidencePath = path.join(evidenceDirectory(), `${spikePhase}-spike.json`);
 mkdirSync(path.dirname(evidencePath), { recursive: true });
 writeFileSync(evidencePath, JSON.stringify({ tool: 'spike.mjs', createdAt: new Date().toISOString(), rows, timestampProbe: probe, pageResults, pageConsoleDuringRunAll, network: networkResults }, null, 1));
 console.log(`\nWrote ${evidencePath}`);

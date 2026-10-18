@@ -52,13 +52,13 @@ export function colourStatistics(meanEncoded, meanLinear) {
 }
 
 const LOAD_IMAGE_FUNCTION = `async (imageUrl) => {
-  const blob = await (await fetch(imageUrl)).blob();
-  const bitmap = await createImageBitmap(blob);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const image = new Image();
+  image.src = imageUrl;
+  await image.decode();
+  const canvas = new OffscreenCanvas(image.naturalWidth, image.naturalHeight);
   const context = canvas.getContext('2d', { willReadFrequently: true });
-  context.drawImage(bitmap, 0, 0);
-  window.measuredImage = { context, width: bitmap.width, height: bitmap.height };
-  bitmap.close();
+  context.drawImage(image, 0, 0);
+  window.measuredImage = { context, width: image.naturalWidth, height: image.naturalHeight };
   return { width: canvas.width, height: canvas.height };
 }`;
 

@@ -33,10 +33,11 @@ function collectImages(inputs, prefixFilter) {
 }
 
 const DECODE_TILE_FUNCTION = `async (imageUrl, slot, maximumWidth, fixedHeight) => {
-  const blob = await (await fetch(imageUrl)).blob();
-  const fullImage = await createImageBitmap(blob);
-  const naturalWidth = fullImage.width;
-  const naturalHeight = fullImage.height;
+  const fullImage = new Image();
+  fullImage.src = imageUrl;
+  await fullImage.decode();
+  const naturalWidth = fullImage.naturalWidth;
+  const naturalHeight = fullImage.naturalHeight;
   const tileWidth = fixedHeight ? Math.round(fixedHeight * naturalWidth / naturalHeight) : maximumWidth;
   const tileHeight = fixedHeight ? fixedHeight : Math.round(maximumWidth * naturalHeight / naturalWidth);
   const tileCanvas = new OffscreenCanvas(tileWidth, tileHeight);
@@ -44,7 +45,6 @@ const DECODE_TILE_FUNCTION = `async (imageUrl, slot, maximumWidth, fixedHeight) 
   tileContext.imageSmoothingEnabled = true;
   tileContext.imageSmoothingQuality = 'high';
   tileContext.drawImage(fullImage, 0, 0, tileWidth, tileHeight);
-  fullImage.close();
   window.sheetTiles = window.sheetTiles || [];
   window.sheetTiles[slot] = tileCanvas.transferToImageBitmap();
   return { naturalWidth, naturalHeight, tileWidth, tileHeight };

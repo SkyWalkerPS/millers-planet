@@ -32,11 +32,17 @@ export function installPageApi() {
             throw new Error("setAstronautPosition arrives with the astronaut in phase 5");
         },
         requestSkyUpdate: () => {
-            throw new Error("requestSkyUpdate arrives with Gargantua in phase 3");
+            requireApplication().gargantuaFirstFillPending = true;
         },
-        traceTestRays: () => {
-            throw new Error("traceTestRays arrives with Gargantua in phase 3");
+        traceTestRays: (specification) => requireApplication().traceGargantuaTestRays(specification),
+        gargantuaDiagnostics: (options) => requireApplication().gargantuaDiagnostics(options),
+        measureGargantuaPlacement: (options) => requireApplication().measureGargantuaPlacement(options),
+        checkSkyViewIndependence: (options) => requireApplication().checkSkyViewIndependence(options),
+        setGargantuaHeatMap: (enabled) => {
+            requireApplication().gargantua.debugHeatMap = Boolean(enabled);
         },
+        setLook: (look) => requireApplication().setLook(look),
+        getLook: () => requireApplication().currentLook(),
         fftModeTest: () => {
             throw new Error("fftModeTest arrives with the sea in phase 4");
         },

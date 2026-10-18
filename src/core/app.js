@@ -1,5 +1,6 @@
 import { Scene } from "@babylonjs/core/scene";
 import { Color4 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { createEngine } from "./engine.js";
 import { SimulationClock } from "./clock.js";
 import { createFramePacer } from "./pacing.js";
@@ -17,6 +18,10 @@ import { discardCanvasDepthAfterEachPass, getGpuDevice, installPipelineCreationC
 import { PostChain } from "../post/postChain.js";
 import { TestScene } from "../debug/testScene.js";
 import { SpikeChecks } from "../debug/spike.js";
+import { GargantuaSky } from "../sky/gargantua.js";
+import { AtmosphereSystem } from "../sky/atmosphere.js";
+import { SkyDome } from "../sky/skyDome.js";
+import { temporarySkyLook } from "../sky/skyLook.js";
 import { shotDefinitions, orbitCameraPose } from "../debug/shots.js";
 import { directionFromAzimuthElevation, gargantuaAzimuthRadians, gargantuaElevationRadians } from "../world/skyLayout.js";
 
@@ -103,8 +108,31 @@ export class MillersPlanetApp {
             this.engine.clear(this.beautyClearColour, true, true, false);
         });
 
+        this.gargantua = new GargantuaSky({
+            engine,
+            scene: this.scene,
+            profiler: this.profiler,
+            azimuthRadians: gargantuaAzimuthRadians,
+            elevationRadians: gargantuaElevationRadians,
+        });
+        this.gargantuaRadianceScale = temporarySkyLook.gargantuaRadianceScale;
+        this.gargantuaShadowStrength = temporarySkyLook.gargantuaShadowStrength;
+        this.gargantuaPatchVisible = true;
+        this.gargantuaFirstFillPending = true;
+        this.boundGargantuaCurrentIndex = -1;
+        this.boundGargantuaPreviousIndex = -1;
+        this.atmosphere = new AtmosphereSystem({ engine, scene: this.scene, profiler: this.profiler, frameUniforms: this.frameUniforms });
+        this.keyLightLuminance = temporarySkyLook.keyLightLuminance;
+        this.keyLightColour = [...temporarySkyLook.keyLightColour];
+        this.keyLightMeasurement = null;
+        this.skyDome = new SkyDome({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere });
+        this.scene.onBeforeRenderObservable.add(() => {
+            this.dispatchGargantuaWork();
+            this.atmosphere.dispatchFrame();
+        });
         this.testScene = new TestScene({ scene: this.scene, engine, frameUniforms: this.frameUniforms, profiler: this.profiler });
         this.postChain = new PostChain({ engine, scene: this.scene, beautyTargets: this.beautyTargets, profiler: this.profiler });
+        this.postChain.settings.exposure = temporarySkyLook.exposure;
         this.spike = new SpikeChecks(this);
 
         this.keyLightDirection = new Float32Array(3);
@@ -132,6 +160,8 @@ export class MillersPlanetApp {
             bloom: true,
             shafts: true,
             jitter: true,
+            gargantua: true,
+            atmosphere: true,
         };
         for (const name of parameters.disabledSystems) {
             this.setSystemEnabled(name, false);
@@ -139,6 +169,346 @@ export class MillersPlanetApp {
         this.applyShot(parameters.shotName && shotDefinitions[parameters.shotName] ? parameters.shotName : "empty", false);
         engine.onResizeObservable.add(() => this.invalidateTemporalHistory());
         window.addEventListener("resize", () => engine.resize());
+    }
+
+    dispatchGargantuaWork() {
+        if (this.gargantuaFirstFillPending) {
+            this.gargantua.bakeNoiseAndFirstImage(this.clock.timeSeconds);
+            this.gargantuaFirstFillPending = false;
+            return;
+        }
+        this.gargantua.dispatchFrameSlice(this.clock.timeSeconds);
+    }
+
+    bindGargantuaTextures() {
+        const gargantua = this.gargantua;
+        if (gargantua.currentIndex === this.boundGargantuaCurrentIndex && gargantua.previousIndex === this.boundGargantuaPreviousIndex) {
+            return;
+        }
+        for (const material of this.materialsSamplingGargantua()) {
+            material.setTexture("gargantuaCurrentPatch", gargantua.currentTexture);
+            material.setTexture("gargantuaPreviousPatch", gargantua.previousTexture);
+        }
+        this.boundGargantuaCurrentIndex = gargantua.currentIndex;
+        this.boundGargantuaPreviousIndex = gargantua.previousIndex;
+    }
+
+    materialsSamplingGargantua() {
+        return [this.skyDome.material];
+    }
+
+    async measureAndApplyKeyLight() {
+        const measured = await this.gargantua.measureKeyLight();
+        this.keyLightMeasurement = measured;
+        this.keyLightDirection[0] = measured.direction[0];
+        this.keyLightDirection[1] = measured.direction[1];
+        this.keyLightDirection[2] = measured.direction[2];
+        this.keyLightAngularRadiusRadians = measured.angularRadiusRadians;
+        this.applyKeyLightIlluminance();
+    }
+
+    async setLook({ exposure, keyLightLuminance, keyLightColour, gargantuaRadianceScale, gargantuaShadowStrength, gargantua, atmosphere, clouds, post } = {}) {
+        if (exposure !== undefined) {
+            this.postChain.settings.exposure = exposure;
+        }
+        if (keyLightColour !== undefined) {
+            this.keyLightColour = [keyLightColour[0], keyLightColour[1], keyLightColour[2]];
+        }
+        if (keyLightLuminance !== undefined) {
+            this.keyLightLuminance = keyLightLuminance;
+        }
+        if (gargantuaRadianceScale !== undefined) {
+            this.gargantuaRadianceScale = gargantuaRadianceScale;
+        }
+        if (gargantuaShadowStrength !== undefined) {
+            this.gargantuaShadowStrength = gargantuaShadowStrength;
+        }
+        if (post) {
+            Object.assign(this.postChain.settings, post);
+        }
+        if (atmosphere || clouds) {
+            this.atmosphere.updateSettings(atmosphere, clouds);
+        }
+        if (gargantua?.diskPeakTemperature !== undefined) {
+            this.gargantua.setDiskPeakTemperature(gargantua.diskPeakTemperature);
+            this.gargantuaFirstFillPending = true;
+            await this.renderFramesNow(1);
+            await this.measureAndApplyKeyLight();
+        }
+        this.applyKeyLightIlluminance();
+        return this.currentLook();
+    }
+
+    currentLook() {
+        const { exposure, bloomAmount, shaftAmount, vignetteAmount, grainAmount, sharpenAmount } = this.postChain.settings;
+        return {
+            exposure,
+            keyLightLuminance: this.keyLightLuminance,
+            keyLightColour: [...this.keyLightColour],
+            gargantua: { diskPeakTemperature: this.gargantua.settings.diskPeakTemperature },
+            gargantuaRadianceScale: this.gargantuaRadianceScale,
+            gargantuaShadowStrength: this.gargantuaShadowStrength,
+            atmosphere: { ...this.atmosphere.settings },
+            clouds: { ...this.atmosphere.cloudSettings },
+            post: { bloomAmount, shaftAmount, vignetteAmount, grainAmount, sharpenAmount },
+            keyLight: this.keyLightMeasurement && {
+                direction: [...this.keyLightMeasurement.direction],
+                illuminance: [...this.keyLightMeasurement.illuminance],
+                angularRadiusDegrees: (this.keyLightMeasurement.angularRadiusRadians * 180) / Math.PI,
+            },
+        };
+    }
+
+    applyKeyLightIlluminance() {
+        const measured = this.keyLightMeasurement;
+        if (!measured) {
+            return;
+        }
+        const colour = this.keyLightColour;
+        const colourLuminance = 0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2];
+        const illuminance = colour.map((value) => (value * this.keyLightLuminance) / colourLuminance);
+        this.keyLightRadiance = illuminance;
+        this.atmosphere.setLight(measured.direction, illuminance);
+    }
+
+    async runGargantuaRays(prepared) {
+        const deadline = performance.now() + 20000;
+        while (!this.gargantua.selfTestCompute.isReady()) {
+            if (performance.now() > deadline) {
+                throw new Error("The Gargantua self-test compute shader never became ready");
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        this.scene.onBeforeRenderObservable.addOnce(() => this.gargantua.dispatchSelfTest(prepared));
+        await this.renderFramesNow(1);
+        const bytes = await prepared.recordBuffer.read();
+        const records = GargantuaSky.decodeSelfTestRecords(bytes, prepared.count);
+        prepared.directionBuffer.dispose();
+        prepared.recordBuffer.dispose();
+        return records;
+    }
+
+    async checkSkyViewIndependence({ orbitFrames = 64 } = {}) {
+        const gargantua = this.gargantua;
+        this.applyShot("sky-gargantua", true);
+        this.clock.freeze(10);
+        await this.renderFramesNow(gargantua.settings.sliceCount * 2);
+        const readPatch = async () => gargantua.currentTexture.readPixels(0, 4, null, true);
+        const before = await readPatch();
+        const updatesBeforeOrbit = gargantua.updatesCompleted;
+        const startYaw = this.cameraPose.yawRadians;
+        for (let frame = 0; frame < orbitFrames; frame++) {
+            this.cameraPose.yawRadians = startYaw + ((frame + 1) / orbitFrames) * Math.PI * 2;
+            await this.renderFramesNow(1);
+        }
+        const updatesDuringOrbit = gargantua.updatesCompleted - updatesBeforeOrbit;
+        const after = await readPatch();
+        const updatesBeforeStill = gargantua.updatesCompleted;
+        await this.renderFramesNow(orbitFrames);
+        const updatesWhileStill = gargantua.updatesCompleted - updatesBeforeStill;
+        let largestDifference = 0;
+        let largestValue = 0;
+        for (let index = 0; index < before.length; index++) {
+            largestDifference = Math.max(largestDifference, Math.abs(before[index] - after[index]));
+            largestValue = Math.max(largestValue, Math.abs(before[index]));
+        }
+        const directionAt = (seconds) => {
+            this.clock.freeze(seconds);
+            return { seconds, patchForward: [...gargantua.patchForward], keyLightDirection: [...this.keyLightDirection] };
+        };
+        const atStart = directionAt(0);
+        const atTenMinutes = directionAt(600);
+        this.clock.freeze(null);
+        return {
+            orbitFrames,
+            updatesDuringOrbit,
+            updatesWhileStill,
+            patchLargestDifferenceAfterOrbit: largestDifference,
+            patchLargestValue: largestValue,
+            directionAtStart: atStart,
+            directionAtTenMinutes: atTenMinutes,
+            directionUnchanged: atStart.patchForward.every((value, axis) => value === atTenMinutes.patchForward[axis]) && atStart.keyLightDirection.every((value, axis) => value === atTenMinutes.keyLightDirection[axis]),
+        };
+    }
+
+    async readBeautyLuminance() {
+        const width = this.beautyTargets.internalWidth;
+        const height = this.beautyTargets.internalHeight;
+        const pixels = await this.beautyTargets.colourTexture.readPixels(0, 0, null, true, false, 0, 0, width, height);
+        const luminance = new Float32Array(width * height);
+        for (let index = 0; index < width * height; index++) {
+            luminance[index] = 0.2126 * pixels[index * 4] + 0.7152 * pixels[index * 4 + 1] + 0.0722 * pixels[index * 4 + 2];
+        }
+        return { width, height, luminance };
+    }
+
+    async measureGargantuaPlacement({ renderScale = 0.5, brightnessRatio = 1.1, settleFrames = 8 } = {}) {
+        const previousPin = this.resolution.pinnedScale;
+        const jitterWasOn = this.systemsEnabled.jitter;
+        this.resolution.pin(renderScale);
+        this.setSystemEnabled("jitter", false);
+        this.applyShot("sky-gargantua", true);
+        await this.renderFramesNow(settleFrames);
+        const withDisk = await this.readBeautyLuminance();
+        this.gargantuaPatchVisible = false;
+        await this.renderFramesNow(2);
+        const withoutDisk = await this.readBeautyLuminance();
+        this.gargantuaPatchVisible = true;
+        this.setSystemEnabled("jitter", jitterWasOn);
+        await this.renderFramesNow(2);
+        this.resolution.pin(previousPin);
+        const { width, height } = withDisk;
+        const forward = this.gargantua.patchForward;
+        const right = this.gargantua.patchRight;
+        const up = this.gargantua.patchUp;
+        const camera = this.cameraFrame.position;
+        const inverse = this.cameraFrame.inverseViewProjection;
+        const screenPoint = new Vector3();
+        const nearPoint = new Vector3();
+        let minimumHorizontal = Infinity;
+        let maximumHorizontal = -Infinity;
+        let minimumVertical = Infinity;
+        let maximumVertical = -Infinity;
+        let brightenedPixels = 0;
+        const ratioThresholds = [1.02, 1.05, 1.1, 1.25, 1.5, 2, 4];
+        const pixelsAboveRatio = ratioThresholds.map(() => 0);
+        for (let row = 0; row < height; row++) {
+            for (let column = 0; column < width; column++) {
+                const index = row * width + column;
+                const ratio = withDisk.luminance[index] / Math.max(withoutDisk.luminance[index], 1e-6);
+                for (let thresholdIndex = 0; thresholdIndex < ratioThresholds.length; thresholdIndex++) {
+                    if (ratio >= ratioThresholds[thresholdIndex]) {
+                        pixelsAboveRatio[thresholdIndex]++;
+                    }
+                }
+                if (ratio < brightnessRatio) {
+                    continue;
+                }
+                screenPoint.set(((column + 0.5) / width) * 2 - 1, ((row + 0.5) / height) * 2 - 1, 1);
+                Vector3.TransformCoordinatesToRef(screenPoint, inverse, nearPoint);
+                const directionX = nearPoint.x - camera.x;
+                const directionY = nearPoint.y - camera.y;
+                const directionZ = nearPoint.z - camera.z;
+                const along = directionX * forward[0] + directionY * forward[1] + directionZ * forward[2];
+                if (along <= 0 || directionY <= 0) {
+                    continue;
+                }
+                const horizontal = Math.atan((directionX * right[0] + directionY * right[1] + directionZ * right[2]) / along);
+                const vertical = Math.atan((directionX * up[0] + directionY * up[1] + directionZ * up[2]) / along);
+                minimumHorizontal = Math.min(minimumHorizontal, horizontal);
+                maximumHorizontal = Math.max(maximumHorizontal, horizontal);
+                minimumVertical = Math.min(minimumVertical, vertical);
+                maximumVertical = Math.max(maximumVertical, vertical);
+                brightenedPixels++;
+            }
+        }
+        const centreHorizontal = Math.tan((minimumHorizontal + maximumHorizontal) / 2);
+        const centreVertical = Math.tan((minimumVertical + maximumVertical) / 2);
+        const centre = [0, 1, 2].map((axis) => forward[axis] + right[axis] * centreHorizontal + up[axis] * centreVertical);
+        const centreLength = Math.hypot(...centre);
+        const toDegrees = 180 / Math.PI;
+        return {
+            brightenedPixels,
+            imagePixels: width * height,
+            horizontalSpanDegrees: (maximumHorizontal - minimumHorizontal) * toDegrees,
+            verticalSpanDegrees: (maximumVertical - minimumVertical) * toDegrees,
+            centreElevationDegrees: Math.asin(centre[1] / centreLength) * toDegrees,
+            centreAzimuthDegrees: Math.atan2(centre[0], centre[2]) * toDegrees,
+            brightnessRatio,
+            renderScale,
+            pixelsAboveRatio: Object.fromEntries(ratioThresholds.map((threshold, thresholdIndex) => [threshold, pixelsAboveRatio[thresholdIndex]])),
+        };
+    }
+
+    async gargantuaDiagnostics({ surveyColumns = 128, surveyRows = 100 } = {}) {
+        const gargantua = this.gargantua;
+        const settings = gargantua.settings;
+        const width = settings.patchWidth;
+        const height = settings.patchHeight;
+        await this.renderFramesNow(settings.sliceCount * 2 + 2);
+        const patch = gargantua.currentTexture;
+        const levelZero = await patch.readPixels(0, 0, null, true);
+        let borderMaximumRadiance = 0;
+        let borderMinimumVisibility = 1;
+        let emissiveTexels = 0;
+        let minimumColumn = width;
+        let maximumColumn = -1;
+        let minimumRow = height;
+        let maximumRow = -1;
+        let shadowTexels = 0;
+        for (let row = 0; row < height; row++) {
+            for (let column = 0; column < width; column++) {
+                const base = (row * width + column) * 4;
+                const radiance = 0.2126 * levelZero[base] + 0.7152 * levelZero[base + 1] + 0.0722 * levelZero[base + 2];
+                const visibility = levelZero[base + 3];
+                const onBorder = row === 0 || column === 0 || row === height - 1 || column === width - 1;
+                if (onBorder) {
+                    borderMaximumRadiance = Math.max(borderMaximumRadiance, radiance);
+                    borderMinimumVisibility = Math.min(borderMinimumVisibility, visibility);
+                }
+                if (radiance > 0.01 || visibility < 0.99) {
+                    emissiveTexels++;
+                    minimumColumn = Math.min(minimumColumn, column);
+                    maximumColumn = Math.max(maximumColumn, column);
+                    minimumRow = Math.min(minimumRow, row);
+                    maximumRow = Math.max(maximumRow, row);
+                }
+                if (visibility < 0.05 && radiance < 0.01) {
+                    shadowTexels++;
+                }
+            }
+        }
+        const angleOfColumn = (column) => (Math.atan(((column + 0.5) / width * 2 - 1) * gargantua.tanHalfX) * 180) / Math.PI;
+        const angleOfRow = (row) => (Math.atan((1 - (row + 0.5) / height * 2) * gargantua.tanHalfY) * 180) / Math.PI;
+        const mipLevel = 5;
+        const mipWidth = width >> mipLevel;
+        const mipHeight = height >> mipLevel;
+        const levelFive = await patch.readPixels(0, mipLevel, null, true);
+        let largestMipError = 0;
+        let largestMipValue = 0;
+        for (let mipRow = 0; mipRow < mipHeight; mipRow++) {
+            for (let mipColumn = 0; mipColumn < mipWidth; mipColumn++) {
+                for (let channel = 0; channel < 4; channel++) {
+                    let sum = 0;
+                    for (let row = mipRow * 32; row < mipRow * 32 + 32; row++) {
+                        for (let column = mipColumn * 32; column < mipColumn * 32 + 32; column++) {
+                            sum += levelZero[(row * width + column) * 4 + channel];
+                        }
+                    }
+                    const boxAverage = sum / 1024;
+                    const mipValue = levelFive[(mipRow * mipWidth + mipColumn) * 4 + channel];
+                    largestMipError = Math.max(largestMipError, Math.abs(mipValue - boxAverage));
+                    largestMipValue = Math.max(largestMipValue, Math.abs(boxAverage));
+                }
+            }
+        }
+        const survey = await this.runGargantuaRays(gargantua.preparePatchStepSurvey(surveyColumns, surveyRows));
+        const steps = survey.map((record) => record.steps).sort((first, second) => first - second);
+        const limitHits = survey.filter((record) => record.outcome === "maxsteps").length;
+        return {
+            patch: [width, height],
+            halfAnglesDegrees: [settings.halfAngleXDegrees, settings.halfAngleYDegrees],
+            border: { maximumRadiance: borderMaximumRadiance, minimumVisibility: borderMinimumVisibility },
+            imageBoxDegrees: emissiveTexels === 0 ? null : {
+                left: angleOfColumn(minimumColumn), right: angleOfColumn(maximumColumn), top: angleOfRow(minimumRow), bottom: angleOfRow(maximumRow),
+                width: angleOfColumn(maximumColumn) - angleOfColumn(minimumColumn), height: angleOfRow(minimumRow) - angleOfRow(maximumRow),
+            },
+            shadowFraction: shadowTexels / (width * height),
+            mipLevelFive: { size: [mipWidth, mipHeight], largestErrorAgainstBoxAverage: largestMipError, largestValue: largestMipValue },
+            stepSurvey: {
+                rays: survey.length,
+                mean: steps.reduce((sum, value) => sum + value, 0) / steps.length,
+                p50: steps[Math.floor(steps.length * 0.5)],
+                p95: steps[Math.floor(steps.length * 0.95)],
+                maximum: steps[steps.length - 1],
+                stepLimitFraction: limitHits / survey.length,
+                overSupersampleThresholdFraction: survey.filter((record) => record.steps > 45).length / survey.length,
+            },
+        };
+    }
+
+    async traceGargantuaTestRays(specification) {
+        return this.runGargantuaRays(this.gargantua.prepareSelfTest(specification));
     }
 
     patchPassDescriptor(descriptor, label, isComputePass) {
@@ -193,6 +563,10 @@ export class MillersPlanetApp {
             this.postChain.settings.shaftsEnabled = isOn;
         } else if (name === "jitter") {
             this.cameraFrame.jitterEnabled = isOn;
+        } else if (name === "gargantua") {
+            this.gargantua.enabled = isOn;
+        } else if (name === "atmosphere") {
+            this.atmosphere.enabled = isOn;
         }
     }
 
@@ -211,6 +585,11 @@ export class MillersPlanetApp {
         this.cameraTransition = null;
         this.cameraMode = "shot";
         this.currentShotName = name;
+        const hiddenSystems = definition.hiddenSystems ?? [];
+        this.setSystemEnabled("testGeometry", !hiddenSystems.includes("testGeometry"));
+        for (const systemName of hiddenSystems) {
+            this.setSystemEnabled(systemName, false);
+        }
         if (freezeTime) {
             this.clock.freeze(definition.timeSeconds);
         }
@@ -292,6 +671,11 @@ export class MillersPlanetApp {
         uniforms.setVector("keyLightRadianceAndFrameIndex", this.keyLightRadiance[0], this.keyLightRadiance[1], this.keyLightRadiance[2], this.frameIndex);
         const forward = cameraFrame.forward;
         uniforms.setVector("cameraForwardAndNearPlane", forward.x, forward.y, forward.z, cameraFrame.nearPlaneMetres);
+        const gargantua = this.gargantua;
+        uniforms.setVector("gargantuaForwardAndTanHalfX", gargantua.patchForward[0], gargantua.patchForward[1], gargantua.patchForward[2], gargantua.tanHalfX);
+        uniforms.setVector("gargantuaRightAndTanHalfY", gargantua.patchRight[0], gargantua.patchRight[1], gargantua.patchRight[2], gargantua.tanHalfY);
+        uniforms.setVector("gargantuaUpAndCrossfade", gargantua.patchUp[0], gargantua.patchUp[1], gargantua.patchUp[2], gargantua.crossfade);
+        uniforms.setVector("gargantuaRadianceScaleAndShadowStrength", this.gargantuaPatchVisible ? this.gargantuaRadianceScale : 0, this.gargantuaPatchVisible ? this.gargantuaShadowStrength : 1, 0, 0);
         uniforms.upload();
     }
 
@@ -313,6 +697,8 @@ export class MillersPlanetApp {
         this.updateCamera(this.clock.lastDeltaSeconds > 0 ? this.clock.lastDeltaSeconds : deltaSeconds);
         this.cameraFrame.prepare(outputWidth, outputHeight, this.beautyTargets.internalWidth, this.beautyTargets.internalHeight);
         this.testScene.update(this.clock.timeSeconds, frameIndex);
+        this.atmosphere.setCameraPositionMetres(this.cameraFrame.position.x, this.cameraFrame.position.y, this.cameraFrame.position.z);
+        this.bindGargantuaTextures();
         this.writeFrameUniforms(outputWidth, outputHeight, this.clock.lastDeltaSeconds);
         const light = this.keyLightDirection;
         const lightUv = this.cameraFrame.projectDirectionToUv(light[0], light[1], light[2]);
@@ -462,7 +848,7 @@ export class MillersPlanetApp {
         const deadline = performance.now() + timeoutMilliseconds;
         for (;;) {
             const materialsReady = meshesWithMaterials.every((mesh) => mesh.material.isReady(mesh));
-            const computeReady = this.testScene.patternCompute.isReady();
+            const computeReady = this.testScene.patternCompute.isReady() && this.gargantua.isReady() && this.atmosphere.isReady();
             const postReady = this.postChain.isReady();
             if (materialsReady && computeReady && postReady) {
                 return;
@@ -476,8 +862,11 @@ export class MillersPlanetApp {
 
     async warmUp() {
         this.testScene.lateMarkerWarmed.setEnabled(true);
-        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed]);
+        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh]);
         this.postChain.settings.outputBlack = 1;
+        this.renderFrame(performance.now(), 1 / 60);
+        await this.device.queue.onSubmittedWorkDone();
+        await this.measureAndApplyKeyLight();
         for (let frameNumber = 0; frameNumber < 4; frameNumber++) {
             this.renderFrame(performance.now(), 1 / 60);
             await this.device.queue.onSubmittedWorkDone();
@@ -574,7 +963,18 @@ export class MillersPlanetApp {
             heldKeys: Array.from(this.input.heldKeyCodes),
             wheelEventsSeen: this.input.wheelEventsSeen,
             helmetRimVisible: this.postChain.settings.helmetRimAmount > 0,
-            sky: { updatesCompleted: 0, lastUpdateMs: 0, slicesPerRefresh: 0, patchDirection: Array.from(this.keyLightDirection) },
+            sky: {
+                updatesCompleted: this.gargantua.updatesCompleted,
+                sliceIndex: this.gargantua.sliceIndex,
+                slicesPerRefresh: this.gargantua.settings.sliceCount,
+                crossfade: this.gargantua.crossfade,
+                patchDirection: Array.from(this.gargantua.patchForward),
+                patchHalfAnglesDegrees: [this.gargantua.settings.halfAngleXDegrees, this.gargantua.settings.halfAngleYDegrees],
+                observerRadius: this.gargantua.settings.observerRadius,
+                diskOuterRadius: this.gargantua.settings.diskOuterRadius,
+                diskPeakTemperature: this.gargantua.settings.diskPeakTemperature,
+                spin: this.gargantua.settings.spin,
+            },
             origin: { offset: [0, 0, 0], shifts: 0 },
             systems: { ...this.systemsEnabled },
         };

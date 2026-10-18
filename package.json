@@ -19,7 +19,8 @@
     "sheet": "node tools/contact-sheet.mjs",
     "comments": "node tools/check-comments.mjs",
     "lockfile": "node tools/check-lockfile.mjs",
-    "test:pacing": "node tools/test-pacing.mjs"
+    "test:pacing": "node tools/test-pacing.mjs",
+    "selftest": "node tools/selftest-gargantua.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "9.18.0"

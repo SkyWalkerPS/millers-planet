@@ -11,4 +11,8 @@ struct FrameUniforms {
     keyLightDirectionAndAngularRadius: vec4f,
     keyLightRadianceAndFrameIndex: vec4f,
     cameraForwardAndNearPlane: vec4f,
+    gargantuaForwardAndTanHalfX: vec4f,
+    gargantuaRightAndTanHalfY: vec4f,
+    gargantuaUpAndCrossfade: vec4f,
+    gargantuaRadianceScaleAndShadowStrength: vec4f,
 };

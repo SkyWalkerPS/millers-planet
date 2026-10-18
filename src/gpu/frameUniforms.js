@@ -9,6 +9,10 @@ const vectorFieldNames = [
     "keyLightDirectionAndAngularRadius",
     "keyLightRadianceAndFrameIndex",
     "cameraForwardAndNearPlane",
+    "gargantuaForwardAndTanHalfX",
+    "gargantuaRightAndTanHalfY",
+    "gargantuaUpAndCrossfade",
+    "gargantuaRadianceScaleAndShadowStrength",
 ];
 
 export class FrameUniforms {

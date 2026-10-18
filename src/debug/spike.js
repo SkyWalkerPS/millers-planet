@@ -4,6 +4,9 @@ import { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage";
 import { RenderTargetTexture } from "@babylonjs/core/Materials/Textures/renderTargetTexture";
+import { RawTexture3D } from "@babylonjs/core/Materials/Textures/rawTexture3D";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { Constants } from "@babylonjs/core/Engines/constants";
 import { Color4 } from "@babylonjs/core/Maths/math.color";
@@ -44,7 +47,7 @@ function roundAll(values, digits = 4) {
 export class SpikeChecks {
     constructor(app) {
         this.app = app;
-        this.names = ["S0", "S0b", "S1", "S2", "S3", "S4", "S5", "S6", "S10", "S11", "S12", "S13"];
+        this.names = ["S0", "S0b", "S1", "S2", "S3", "S4", "S5", "S6", "S8", "S9", "S10", "S11", "S12", "S13"];
     }
 
     async runAll() {
@@ -206,8 +209,8 @@ export class SpikeChecks {
             samplingMode: Constants.TEXTURE_NEAREST_SAMPLINGMODE,
         });
         target.clearColor = new Color4(0, 0, 0, 0);
-        target.renderList = [app.testScene.skyMesh];
-        target.setMaterialForRendering(app.testScene.skyMesh, flatMaterial);
+        target.renderList = [app.skyDome.mesh];
+        target.setMaterialForRendering(app.skyDome.mesh, flatMaterial);
         target.activeCamera = app.cameraFrame.camera;
         const corners = [[1, 1], [254, 1], [1, 254], [254, 254]];
         const results = {};
@@ -217,7 +220,7 @@ export class SpikeChecks {
                 target.ignoreCameraViewport = ignoreViewport;
                 let ready = false;
                 for (let attempt = 0; attempt < 60 && !ready; attempt++) {
-                    ready = flatMaterial.isReady(app.testScene.skyMesh);
+                    ready = flatMaterial.isReady(app.skyDome.mesh);
                     await app.renderFramesNow(1);
                 }
                 await app.renderFramesNow(2);
@@ -301,6 +304,83 @@ export class SpikeChecks {
             },
             fallbackUsed: storeCostDifference > 0.1 ? "the maximum allocation costs more than 0.1 ms; consider ?allocation=steps" : null,
         };
+    }
+
+    async checkS8() {
+        const diagnostics = await this.app.gargantuaDiagnostics({ surveyColumns: 8, surveyRows: 8 });
+        const mip = diagnostics.mipLevelFive;
+        const tolerance = 0.01 * Math.max(1, mip.largestValue);
+        return { pass: mip.largestErrorAgainstBoxAverage <= tolerance, details: { mipLevelFive: mip, tolerance, patch: diagnostics.patch } };
+    }
+
+    async checkS9() {
+        const app = this.app;
+        const scene = app.scene;
+        const volumeSize = 32;
+        const volume = new RawTexture3D(
+            null,
+            volumeSize,
+            volumeSize,
+            volumeSize,
+            Constants.TEXTUREFORMAT_RGBA,
+            scene,
+            false,
+            false,
+            Constants.TEXTURE_NEAREST_SAMPLINGMODE,
+            Constants.TEXTURETYPE_HALF_FLOAT,
+            Constants.TEXTURE_CREATIONFLAG_STORAGE,
+        );
+        const writer = new ComputeShader("spikeVolumeWriter", app.engine, "spikeVolumeWriter", { bindingsMapping: { volumeOutput: { group: 0, binding: 0 } } });
+        writer.setStorageTexture("volumeOutput", volume);
+        const material = new ShaderMaterial("spikeVolumeProbe", scene, { vertex: "skyDome", fragment: "spikeVolumeProbe" }, {
+            attributes: ["position"],
+            uniforms: ["sliceCoordinate"],
+            samplers: ["probeVolume"],
+            shaderLanguage: ShaderLanguage.WGSL,
+        });
+        const sliceIndex = 19;
+        material.setTexture("probeVolume", volume);
+        material.setFloat("sliceCoordinate", (sliceIndex + 0.5) / volumeSize);
+        material.backFaceCulling = false;
+        material.disableDepthWrite = true;
+        const mesh = new Mesh("spikeVolumeProbe", scene);
+        const vertexData = new VertexData();
+        vertexData.positions = [-1, -1, 0, 3, -1, 0, -1, 3, 0];
+        vertexData.indices = [0, 1, 2];
+        vertexData.applyToMesh(mesh);
+        mesh.material = material;
+        mesh.alwaysSelectAsActiveMesh = true;
+        mesh.renderingGroupId = 1;
+        try {
+            const deadline = performance.now() + 20000;
+            while (!(writer.isReady() && material.isReady(mesh))) {
+                if (performance.now() > deadline) {
+                    throw new Error("The S9 writer or probe material never became ready");
+                }
+                await app.renderFramesNow(1);
+            }
+            app.applyShot("sky-gargantua", true);
+            app.resolution.pin(0.7);
+            app.skyDome.mesh.setEnabled(false);
+            scene.onBeforeRenderObservable.addOnce(() => writer.dispatch(volumeSize / 4, volumeSize / 4, volumeSize / 4));
+            await app.renderFramesNow(1);
+            const width = app.beautyTargets.internalWidth;
+            const row = Math.floor(app.beautyTargets.internalHeight / 2);
+            const samples = [];
+            for (const texelIndex of [1, 9, 16, 24, 30]) {
+                const column = Math.min(width - 1, Math.floor(((texelIndex + 0.5) / volumeSize) * width));
+                const texel = await readTexel(app.beautyTargets.colourTexture, column, row);
+                const expected = [texelIndex / 31, sliceIndex / 31, 0.25];
+                const error = Math.max(...expected.map((value, channel) => Math.abs(value - texel[channel])));
+                samples.push({ column, texelIndex, expected: roundAll(expected), read: roundAll(texel.slice(0, 3)), error: Number(error.toFixed(5)) });
+            }
+            return { pass: samples.every((sample) => sample.error < 0.01), details: { sliceIndex, samples } };
+        } finally {
+            app.skyDome.mesh.setEnabled(true);
+            mesh.dispose();
+            material.dispose();
+            volume.dispose();
+        }
     }
 
     async checkS6() {

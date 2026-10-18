@@ -1,0 +1,6 @@
+fn applyAerialPerspective(radiance: vec3f, unjitteredClip: vec4f, viewDistanceMetres: f32) -> vec3f {
+    let screenUv = clamp(unjitteredClip.xy / max(unjitteredClip.w, 1e-6) * 0.5 + 0.5, vec2f(0.0), vec2f(1.0));
+    let coordinates = vec3f(screenUv, aerialPerspectiveSliceCoordinate(viewDistanceMetres));
+    let inscatterAndTransmittance = textureSampleLevel(aerialPerspectiveVolume, aerialPerspectiveVolumeSampler, coordinates, 0.0);
+    return radiance * inscatterAndTransmittance.a + inscatterAndTransmittance.rgb;
+}
