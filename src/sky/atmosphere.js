@@ -50,8 +50,8 @@ export const defaultCloudSettings = {
     blobScale: 1.6,
 };
 
-function createStorageTexture2D(scene, width, height, wrapU, samplingMode = Constants.TEXTURE_BILINEAR_SAMPLINGMODE) {
-    const texture = new RawTexture(null, width, height, Constants.TEXTUREFORMAT_RGBA, scene, false, false, samplingMode, Constants.TEXTURETYPE_HALF_FLOAT, Constants.TEXTURE_CREATIONFLAG_STORAGE);
+function createStorageTexture2D(scene, width, height, wrapU, samplingMode = Constants.TEXTURE_BILINEAR_SAMPLINGMODE, withMipmaps = false) {
+    const texture = new RawTexture(null, width, height, Constants.TEXTUREFORMAT_RGBA, scene, withMipmaps, false, samplingMode, Constants.TEXTURETYPE_HALF_FLOAT, Constants.TEXTURE_CREATIONFLAG_STORAGE);
     texture.wrapU = wrapU;
     texture.wrapV = Constants.TEXTURE_CLAMP_ADDRESSMODE;
     return texture;
@@ -103,7 +103,7 @@ export class AtmosphereSystem {
         this.transmittanceLut = createStorageTexture2D(scene, ...transmittanceSize, Constants.TEXTURE_CLAMP_ADDRESSMODE);
         this.multipleScatteringLut = createStorageTexture2D(scene, ...multipleScatteringSize, Constants.TEXTURE_CLAMP_ADDRESSMODE);
         this.skyViewLut = createStorageTexture2D(scene, ...skyViewSize, Constants.TEXTURE_CLAMP_ADDRESSMODE);
-        this.cloudDeckTexture = createStorageTexture2D(scene, this.cloudSettings.textureWidth, this.cloudSettings.textureHeight, Constants.TEXTURE_WRAP_ADDRESSMODE);
+        this.cloudDeckTexture = createStorageTexture2D(scene, this.cloudSettings.textureWidth, this.cloudSettings.textureHeight, Constants.TEXTURE_WRAP_ADDRESSMODE, Constants.TEXTURE_TRILINEAR_SAMPLINGMODE, true);
         this.aerialPerspectiveVolume = new RawTexture3D(
             null,
             aerialPerspectiveSize,
@@ -282,6 +282,9 @@ export class AtmosphereSystem {
         }
         if (this.cloudRebuildPending) {
             this.dispatch(this.cloudCompute, "cloudDeckBake", this.cloudSettings.textureWidth / workgroupEdge, this.cloudSettings.textureHeight / workgroupEdge);
+            this.profiler.explicitLabel = "cloudDeckMips";
+            this.engine.generateMipmaps(this.cloudDeckTexture.getInternalTexture());
+            this.profiler.explicitLabel = null;
             this.cloudRebuildPending = false;
             this.cloudBakeCount++;
         }

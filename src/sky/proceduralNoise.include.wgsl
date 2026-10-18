@@ -27,6 +27,23 @@ fn gradientNoiseTwo(position: vec2f) -> f32 {
     return 1.414 * mix(mix(a, b, fade.x), mix(c, d, fade.x), fade.y);
 }
 
+fn latticeGradientFromHashBitsTwo(cell: vec2i) -> vec2f {
+    let hashed = permutedCongruentialHash((bitcast<u32>(cell.x) * 0x8da6b343u) ^ (bitcast<u32>(cell.y) * 0xd8163841u));
+    return vec2f(f32(hashed & 0xffffu), f32(hashed >> 16u)) * (2.0 / 65535.0) - 1.0;
+}
+
+fn trigonometryFreeGradientNoiseTwo(position: vec2f) -> f32 {
+    let cellFloor = floor(position);
+    let local = position - cellFloor;
+    let cell = vec2i(cellFloor);
+    let fade = local * local * local * (local * (local * 6.0 - 15.0) + 10.0);
+    let a = dot(latticeGradientFromHashBitsTwo(cell), local);
+    let b = dot(latticeGradientFromHashBitsTwo(cell + vec2i(1, 0)), local - vec2f(1.0, 0.0));
+    let c = dot(latticeGradientFromHashBitsTwo(cell + vec2i(0, 1)), local - vec2f(0.0, 1.0));
+    let d = dot(latticeGradientFromHashBitsTwo(cell + vec2i(1, 1)), local - vec2f(1.0, 1.0));
+    return 1.73 * mix(mix(a, b, fade.x), mix(c, d, fade.x), fade.y);
+}
+
 fn fractalNoiseTwo(position: vec2f, octaves: i32, billow: f32) -> f32 {
     var sum = 0.0;
     var amplitude = 0.5;

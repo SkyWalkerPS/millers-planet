@@ -67,3 +67,34 @@ export function installPipelineCreationCounters(device) {
     };
     return counters;
 }
+
+export function createSingleMipViews(texture, layerCount, dimension = "2d-array") {
+    const gpuTexture = getGpuTextureOfInternalTexture(texture.getInternalTexture());
+    const views = [];
+    for (let level = 0; level < gpuTexture.mipLevelCount; level++) {
+        views.push(gpuTexture.createView({ dimension, baseMipLevel: level, mipLevelCount: 1, baseArrayLayer: 0, arrayLayerCount: layerCount }));
+    }
+    return views;
+}
+
+export function storageTextureForView(name, view) {
+    return {
+        name,
+        uniqueId: -1,
+        isReady: () => true,
+        _texture: { _hardwareTexture: { viewForWriting: view, textureAdditionalUsages: 8 } },
+    };
+}
+
+export function sampledInternalTextureForView(view) {
+    return { _hardwareTexture: { view } };
+}
+
+export function copyWholeTexture(engine, sourceTexture, destinationTexture, width, height) {
+    const encoder = engine._renderEncoder;
+    encoder.copyTextureToTexture(
+        { texture: getGpuTextureOfInternalTexture(sourceTexture.getInternalTexture()) },
+        { texture: getGpuTextureOfInternalTexture(destinationTexture.getInternalTexture()) },
+        { width, height, depthOrArrayLayers: 1 },
+    );
+}

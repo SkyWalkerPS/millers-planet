@@ -24,6 +24,8 @@ export class DynamicResolutionController {
         holdBandHighMilliseconds = 11.0,
         singleFrameSpikeMilliseconds = 12.5,
         hardSpikeMilliseconds = 14.0,
+        frameDeadlineGuardMilliseconds = 16.0,
+        rawStepUpCeilingMilliseconds = 15.5,
         assumedFixedCostFraction = 0.45,
     } = {}) {
         this.minimumScale = minimumScale;
@@ -33,6 +35,13 @@ export class DynamicResolutionController {
         this.targetMilliseconds = (holdBandLowMilliseconds + holdBandHighMilliseconds) * 0.5;
         this.singleFrameSpikeMilliseconds = singleFrameSpikeMilliseconds;
         this.hardSpikeMilliseconds = hardSpikeMilliseconds;
+        this.frameDeadlineGuardMilliseconds = frameDeadlineGuardMilliseconds;
+        this.rawStepUpCeilingMilliseconds = rawStepUpCeilingMilliseconds;
+        this.windowRawMaximumMilliseconds = 0;
+        this.stepUpsBlockedByRawSpan = 0;
+        this.deadlineCutCount = 0;
+        this.lastClockSlowdown = 1;
+        this.lastNormalizedSpanMilliseconds = 0;
         this.recentSpikeFlags = 0;
         this.probeIntervalFrames = shortestProbeIntervalFrames;
         this.lastScaleChangeFrameIndex = 0;
@@ -80,6 +89,7 @@ export class DynamicResolutionController {
         }
         this.scale = this.pinnedScale ?? clamped;
         this.windowCount = 0;
+        this.windowRawMaximumMilliseconds = 0;
         this.recentSpikeFlags = 0;
         this.scaleChangeFrameIndex = this.latestSubmittedFrameIndex + 1;
         this.lastScaleChangeFrameIndex = this.latestSubmittedFrameIndex;
@@ -142,14 +152,31 @@ export class DynamicResolutionController {
         return this.sortedWindowSpans[count >> 1];
     }
 
-    onFrameTimed(frameIndex, spanMilliseconds, scaleOfFrame) {
-        if (!(spanMilliseconds > 0)) {
+    onFrameTimed(frameIndex, rawSpanMilliseconds, scaleOfFrame, clockSlowdown = 1) {
+        if (!(rawSpanMilliseconds > 0)) {
             return;
         }
+        const slowdown = Math.max(clockSlowdown, 1);
+        const spanMilliseconds = rawSpanMilliseconds / slowdown;
+        this.lastClockSlowdown = slowdown;
+        this.lastNormalizedSpanMilliseconds = spanMilliseconds;
         this.updateCostModel(scaleOfFrame, spanMilliseconds);
-        if (this.pinnedScale !== null || frameIndex < this.scaleChangeFrameIndex) {
+        if (this.pinnedScale !== null) {
             return;
         }
+        const frameWasDrawnAtOrBelowCurrentScale = scaleOfFrame <= this.scale + 1e-6;
+        if (rawSpanMilliseconds > this.frameDeadlineGuardMilliseconds && frameWasDrawnAtOrBelowCurrentScale) {
+            const cutFraction = Math.min(0.15, Math.max(0.05, 1 - Math.sqrt(this.frameDeadlineGuardMilliseconds * 0.85 / rawSpanMilliseconds)));
+            this.deadlineCutCount++;
+            this.stepDownCount++;
+            this.probeIntervalFrames = Math.min(longestProbeIntervalFrames, this.probeIntervalFrames * 2);
+            this.applyScale(this.scale * (1 - cutFraction), "deadline");
+            return;
+        }
+        if (frameIndex < this.scaleChangeFrameIndex) {
+            return;
+        }
+        this.windowRawMaximumMilliseconds = Math.max(this.windowRawMaximumMilliseconds, rawSpanMilliseconds);
         this.recentSpikeFlags = ((this.recentSpikeFlags << 1) | (spanMilliseconds > this.singleFrameSpikeMilliseconds ? 1 : 0)) & recentSpikeWindowMask;
         if (spanMilliseconds > this.hardSpikeMilliseconds || countSetBits(this.recentSpikeFlags) >= 2) {
             const cutFraction = Math.min(0.15, Math.max(0.05, 1 - Math.sqrt(this.targetMilliseconds / spanMilliseconds)));
@@ -164,7 +191,14 @@ export class DynamicResolutionController {
             return;
         }
         const medianSpan = this.windowMedian();
+        const rawSpanLeftRoomToStepUp = this.windowRawMaximumMilliseconds < this.rawStepUpCeilingMilliseconds;
         this.windowCount = 0;
+        this.windowRawMaximumMilliseconds = 0;
+        const wantsToStepUp = this.scale < this.maximumScale && (medianSpan < this.holdBandLowMilliseconds || frameIndex - this.lastScaleChangeFrameIndex >= this.probeIntervalFrames);
+        if (medianSpan <= this.holdBandHighMilliseconds && wantsToStepUp && !rawSpanLeftRoomToStepUp) {
+            this.stepUpsBlockedByRawSpan++;
+            return;
+        }
         if (medianSpan > this.holdBandHighMilliseconds) {
             const modelled = this.modelledScaleForTarget(medianSpan);
             const proposed = Math.min(this.scale * 0.985, Math.max(modelled, this.scale * 0.93));

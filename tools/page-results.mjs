@@ -126,6 +126,7 @@ export function normaliseFrameLog(rawLog) {
   const labelNames = toPlainArray(firstPresent(rawLog, LABEL_NAMES)) || [];
   const passByLabel = passTimesByLabel(rawLog.passMs, labelNames, frameIndices.length);
   const busy = toPlainArray(rawLog.gpuBusyMs) || [];
+  const clockSlowdowns = toPlainArray(rawLog.clockSlowdown) || [];
   const scales = toPlainArray(rawLog.scale) || [];
   const generations = toPlainArray(rawLog.generation) || [];
   const wavePhases = toPlainArray(rawLog.wavePhaseCode) || [];
@@ -136,6 +137,7 @@ export function normaliseFrameLog(rawLog) {
       rafTimeMs: toNumberOrNaN(rafTimes[position]),
       gpuSpanMs: toNumberOrNaN(spans[position]),
       gpuBusyMs: toNumberOrNaN(busy[position]),
+      clockSlowdown: toNumberOrNaN(clockSlowdowns[position]),
       passMs: Object.fromEntries(Object.entries(passByLabel).map(([label, values]) => [label, values[position]])),
       scale: toNumberOrNaN(scales[position]),
       generation: generations[position],

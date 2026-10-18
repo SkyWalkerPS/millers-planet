@@ -5,3 +5,8 @@ fn aerialPerspectiveSliceCoordinate(viewDistanceMetres: f32) -> f32 {
     let normalised = sqrt(clamp(viewDistanceMetres * 0.001 / AERIAL_PERSPECTIVE_FAR_KILOMETRES, 0.0, 1.0));
     return clamp(normalised - 0.5 / f32(AERIAL_PERSPECTIVE_SIZE), 0.5 / f32(AERIAL_PERSPECTIVE_SIZE), 1.0 - 0.5 / f32(AERIAL_PERSPECTIVE_SIZE));
 }
+
+fn aerialPerspectiveNearFade(viewDistanceMetres: f32) -> f32 {
+    let firstSliceMetres = AERIAL_PERSPECTIVE_FAR_KILOMETRES * 1000.0 / f32(AERIAL_PERSPECTIVE_SIZE * AERIAL_PERSPECTIVE_SIZE);
+    return clamp(viewDistanceMetres / firstSliceMetres, 0.0, 1.0);
+}

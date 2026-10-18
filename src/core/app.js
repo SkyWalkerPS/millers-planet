@@ -11,6 +11,7 @@ import { GpuErrorCollector } from "../gpu/errors.js";
 import { FrameLog, frameLogCapacity } from "../gpu/frameLog.js";
 import { PassTimestampProfiler } from "../gpu/profiler.js";
 import { DynamicResolutionController } from "../gpu/resolution.js";
+import { ClockGauge } from "../gpu/clockGauge.js";
 import { BeautyTargets } from "../gpu/targets.js";
 import { FrameUniforms } from "../gpu/frameUniforms.js";
 import { registerAllShaders } from "../gpu/shaderRegistry.js";
@@ -22,6 +23,10 @@ import { GargantuaSky } from "../sky/gargantua.js";
 import { AtmosphereSystem } from "../sky/atmosphere.js";
 import { SkyDome } from "../sky/skyDome.js";
 import { temporarySkyLook } from "../sky/skyLook.js";
+import { SeaSimulation } from "../sea/seaSimulation.js";
+import { SeaSurface } from "../sea/seaSurface.js";
+import { RippleField } from "../sea/rippleField.js";
+import { WaveReservation } from "../wave/waveReservation.js";
 import { shotDefinitions, orbitCameraPose } from "../debug/shots.js";
 import { directionFromAzimuthElevation, gargantuaAzimuthRadians, gargantuaElevationRadians } from "../world/skyLayout.js";
 
@@ -89,11 +94,15 @@ export class MillersPlanetApp {
         if (parameters.pinnedScale !== null) {
             this.resolution.pin(parameters.pinnedScale);
         }
-        this.profiler.addTimedFrameListener((frameIndex, spanMilliseconds) => {
+        this.clockGauge = new ClockGauge();
+        this.profiler.addTimedFrameListener((frameIndex, spanMilliseconds, busyMilliseconds, exclusiveMillisecondsByLabel) => {
             const slot = frameIndex % frameLogCapacity;
-            if (this.frameLog.frameIndexBySlot[slot] === frameIndex) {
-                this.resolution.onFrameTimed(frameIndex, spanMilliseconds, this.frameLog.renderScaleBySlot[slot]);
+            if (this.frameLog.frameIndexBySlot[slot] !== frameIndex) {
+                return;
             }
+            const slowdown = this.clockGauge.observe(this.clockGauge.gaugeMilliseconds(this.profiler.labelNames, exclusiveMillisecondsByLabel));
+            this.frameLog.recordClockSlowdown(frameIndex, slowdown);
+            this.resolution.onFrameTimed(frameIndex, spanMilliseconds, this.frameLog.renderScaleBySlot[slot], slowdown);
         });
         this.internalSize = new Int32Array(2);
         this.beautyTargets = new BeautyTargets(this.scene, parameters.allocationPolicy);
@@ -126,13 +135,29 @@ export class MillersPlanetApp {
         this.keyLightColour = [...temporarySkyLook.keyLightColour];
         this.keyLightMeasurement = null;
         this.skyDome = new SkyDome({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere });
+        this.seaSimulation = new SeaSimulation({ engine, scene: this.scene, profiler: this.profiler });
+        this.rippleField = new RippleField({ engine, scene: this.scene, profiler: this.profiler, seaSettings: this.seaSimulation.settings });
+        this.seaSurface = new SeaSurface({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, simulation: this.seaSimulation, rippleField: this.rippleField });
         this.scene.onBeforeRenderObservable.add(() => {
             this.dispatchGargantuaWork();
             this.atmosphere.dispatchFrame();
+            this.seaSimulation.dispatchFrame(this.clock.timeSeconds, this.clock.lastDeltaSeconds);
+            if (this.seaSimulation.enabled) {
+                this.rippleField.dispatchFrame(this.rippleCentre[0], this.rippleCentre[1], this.clock.lastDeltaSeconds > 0);
+            }
+        });
+        this.rippleCentre = [0, 0];
+        this.waveReservation = new WaveReservation({
+            scene: this.scene,
+            frameUniforms: this.frameUniforms,
+            atmosphere: this.atmosphere,
+            simulation: this.seaSimulation,
+            travelDirection: this.seaSimulation.settings.windTravelDirection,
         });
         this.testScene = new TestScene({ scene: this.scene, engine, frameUniforms: this.frameUniforms, profiler: this.profiler });
         this.postChain = new PostChain({ engine, scene: this.scene, beautyTargets: this.beautyTargets, profiler: this.profiler });
         this.postChain.settings.exposure = temporarySkyLook.exposure;
+        this.defaultMaximumBlurRadiusPixels = this.postChain.settings.maximumBlurRadiusPixels;
         this.spike = new SpikeChecks(this);
 
         this.keyLightDirection = new Float32Array(3);
@@ -162,12 +187,17 @@ export class MillersPlanetApp {
             jitter: true,
             gargantua: true,
             atmosphere: true,
+            sea: true,
+            waveReservation: false,
         };
         for (const name of parameters.disabledSystems) {
             this.setSystemEnabled(name, false);
         }
         this.applyShot(parameters.shotName && shotDefinitions[parameters.shotName] ? parameters.shotName : "empty", false);
-        engine.onResizeObservable.add(() => this.invalidateTemporalHistory());
+        engine.onResizeObservable.add(() => {
+            this.invalidateTemporalHistory();
+            this.clockGauge.reset();
+        });
         window.addEventListener("resize", () => engine.resize());
     }
 
@@ -194,7 +224,7 @@ export class MillersPlanetApp {
     }
 
     materialsSamplingGargantua() {
-        return [this.skyDome.material];
+        return [this.skyDome.material, this.seaSurface.material, ...this.waveReservation.materials];
     }
 
     async measureAndApplyKeyLight() {
@@ -207,7 +237,14 @@ export class MillersPlanetApp {
         this.applyKeyLightIlluminance();
     }
 
-    async setLook({ exposure, keyLightLuminance, keyLightColour, gargantuaRadianceScale, gargantuaShadowStrength, gargantua, atmosphere, clouds, post } = {}) {
+    async setLook({ exposure, keyLightLuminance, keyLightColour, gargantuaRadianceScale, gargantuaShadowStrength, gargantua, atmosphere, clouds, post, sea, seaSurface } = {}) {
+        if (sea) {
+            this.seaSimulation.updateSettings(sea);
+            await this.calibrateSeaHeight();
+        }
+        if (seaSurface) {
+            this.seaSurface.updateSettings(seaSurface);
+        }
         if (exposure !== undefined) {
             this.postChain.settings.exposure = exposure;
         }
@@ -251,6 +288,8 @@ export class MillersPlanetApp {
             atmosphere: { ...this.atmosphere.settings },
             clouds: { ...this.atmosphere.cloudSettings },
             post: { bloomAmount, shaftAmount, vignetteAmount, grainAmount, sharpenAmount },
+            sea: { ...this.seaSimulation.settings, spectrumGain: this.seaSimulation.spectrumGain },
+            seaSurface: { ...this.seaSurface.settings },
             keyLight: this.keyLightMeasurement && {
                 direction: [...this.keyLightMeasurement.direction],
                 illuminance: [...this.keyLightMeasurement.illuminance],
@@ -328,6 +367,168 @@ export class MillersPlanetApp {
             directionAtStart: atStart,
             directionAtTenMinutes: atTenMinutes,
             directionUnchanged: atStart.patchForward.every((value, axis) => value === atTenMinutes.patchForward[axis]) && atStart.keyLightDirection.every((value, axis) => value === atTenMinutes.keyLightDirection[axis]),
+        };
+    }
+
+    async renderOneFrameAndWait() {
+        if (this.warmUpComplete) {
+            await this.renderFramesNow(1);
+        } else {
+            this.renderFrame(performance.now(), 1 / 60);
+        }
+        await this.device.queue.onSubmittedWorkDone();
+    }
+
+    async withSeaSimulationRunning(measurement) {
+        const simulation = this.seaSimulation;
+        const wasEnabled = simulation.enabled;
+        simulation.enabled = true;
+        try {
+            return await measurement();
+        } finally {
+            simulation.enabled = wasEnabled;
+        }
+    }
+
+    calibrateSeaHeight() {
+        return this.withSeaSimulationRunning(async () => {
+            const simulation = this.seaSimulation;
+            simulation.spectrumGain = 1;
+            simulation.requestInitialSpectrum();
+            await this.renderOneFrameAndWait();
+            const measuredBefore = await simulation.measureSignificantHeight();
+            if (measuredBefore > 0) {
+                simulation.spectrumGain = (simulation.settings.targetSignificantHeightMetres / measuredBefore) ** 2;
+                simulation.requestInitialSpectrum();
+                await this.renderOneFrameAndWait();
+            }
+            simulation.significantHeightMetres = await simulation.measureSignificantHeight();
+            return { measuredBefore, measuredAfter: simulation.significantHeightMetres, spectrumGain: simulation.spectrumGain };
+        });
+    }
+
+    measureSeaModeFrequency(options = {}) {
+        return this.withSeaSimulationRunning(() => this.measureSeaModeFrequencyWhileRunning(options));
+    }
+
+    measureRippleRingSpeed(options = {}) {
+        return this.withSeaSimulationRunning(() => this.measureRippleRingSpeedWhileRunning(options));
+    }
+
+    async measureSeaModeFrequencyWhileRunning({ cascade = 0, modeIndex = 4, amplitude = 0.01, firstTimeSeconds = 1.0, secondTimeSeconds = 1.05 } = {}) {
+        const simulation = this.seaSimulation;
+        const previousFreeze = this.clock.frozenAtSeconds;
+        simulation.testMode = { cascade, modeIndex, amplitude };
+        simulation.requestInitialSpectrum();
+        const quarterWavelengthTexels = 256 / (4 * modeIndex);
+        const phaseAt = async (seconds) => {
+            this.clock.freeze(seconds);
+            simulation.requestProbe([[0, 0, cascade], [quarterWavelengthTexels, 0, cascade]], false);
+            await this.renderFramesNow(1);
+            const results = await simulation.readProbeResults(2);
+            return { seconds, heightAtOrigin: results[0][1], heightAtQuarterWavelength: results[1][1], phase: Math.atan2(results[1][1], results[0][1]) };
+        };
+        const first = await phaseAt(firstTimeSeconds);
+        const second = await phaseAt(secondTimeSeconds);
+        simulation.testMode = null;
+        simulation.requestInitialSpectrum();
+        this.clock.freeze(previousFreeze);
+        await this.renderFramesNow(1);
+        let phaseChange = second.phase - first.phase;
+        while (phaseChange > Math.PI) {
+            phaseChange -= 2 * Math.PI;
+        }
+        while (phaseChange < -Math.PI) {
+            phaseChange += 2 * Math.PI;
+        }
+        const patchSize = simulation.settings.cascadeSizes[cascade];
+        const wavenumber = (2 * Math.PI * modeIndex) / patchSize;
+        const settings = simulation.settings;
+        return {
+            cascade,
+            modeIndex,
+            wavelengthMetres: patchSize / modeIndex,
+            wavenumber,
+            measuredAngularFrequency: phaseChange / (secondTimeSeconds - firstTimeSeconds),
+            expectedFiniteDepth: simulation.angularFrequencyOf(wavenumber),
+            expectedDeepWater: Math.sqrt(settings.gravity * wavenumber + settings.surfaceTensionOverDensity * wavenumber ** 3),
+            twoMetreFiniteDepth: simulation.angularFrequencyOf(Math.PI),
+            twoMetreDeepWater: Math.sqrt(settings.gravity * Math.PI + settings.surfaceTensionOverDensity * Math.PI ** 3),
+            amplitudeSeen: Math.hypot(first.heightAtOrigin, first.heightAtQuarterWavelength),
+            first,
+            second,
+        };
+    }
+
+    async measureRippleRingSpeedWhileRunning({ radiusMetres = 0.1, heightChangeMetres = 0.004, firstStep = 40, secondStep = 100 } = {}) {
+        const ripples = this.rippleField;
+        const previousFreeze = this.clock.frozenAtSeconds;
+        this.clock.freeze(10);
+        ripples.requestReset();
+        await this.renderFramesNow(2);
+        const centre = [...ripples.windowCentre];
+        ripples.queueStamp({ x: centre[0], z: centre[1], radius: radiusMetres, heightChange: heightChangeMetres, foam: 0, ringWeight: 0.48 });
+        ripples.requestPreroll(secondStep + 1);
+        const texel = ripples.settings.texelMetres;
+        const profiles = [];
+        let stepsDone = 0;
+        for (const targetStep of [firstStep, secondStep]) {
+            await this.renderFramesNow(targetStep - stepsDone);
+            stepsDone = targetStep;
+            const pixels = await ripples.readTexture.readPixels(0, 0, null, true);
+            const binCount = 240;
+            const sums = new Float64Array(binCount);
+            const counts = new Float64Array(binCount);
+            const centreTexel = [Math.round(centre[0] / texel), Math.round(centre[1] / texel)];
+            for (let row = 0; row < 512; row++) {
+                for (let column = 0; column < 512; column++) {
+                    const worldTexelX = ripples.windowLow[0] + (((column - ripples.windowLow[0]) % 512) + 512) % 512;
+                    const worldTexelZ = ripples.windowLow[1] + (((row - ripples.windowLow[1]) % 512) + 512) % 512;
+                    const radius = Math.hypot(worldTexelX - centreTexel[0], worldTexelZ - centreTexel[1]);
+                    const bin = Math.floor(radius);
+                    if (bin < binCount) {
+                        const height = pixels[(row * 512 + column) * 4];
+                        sums[bin] += height * height;
+                        counts[bin] += 1;
+                    }
+                }
+            }
+            const amplitude = Array.from(sums, (sum, bin) => Math.sqrt(sum / Math.max(counts[bin], 1)));
+            const peak = Math.max(...amplitude.slice(3));
+            const peakBin = amplitude.indexOf(peak, 3);
+            let innerEdgeBin = peakBin;
+            while (innerEdgeBin > 0 && amplitude[innerEdgeBin] > peak * 0.2) {
+                innerEdgeBin--;
+            }
+            let outerEdgeBin = peakBin;
+            while (outerEdgeBin < binCount - 1 && amplitude[outerEdgeBin] > peak * 0.2) {
+                outerEdgeBin++;
+            }
+            let weightedRadius = 0;
+            let weight = 0;
+            amplitude.forEach((value, bin) => {
+                weightedRadius += (bin + 0.5) * value * value;
+                weight += value * value;
+            });
+            profiles.push({
+                step: targetStep,
+                seconds: targetStep * ripples.settings.stepSeconds,
+                peakRadiusMetres: (peakBin + 0.5) * texel,
+                innerEdgeMetres: (innerEdgeBin + 0.5) * texel,
+                outerEdgeMetres: (outerEdgeBin + 0.5) * texel,
+                energyRadiusMetres: (weightedRadius / Math.max(weight, 1e-12)) * texel,
+                peakAmplitudeMetres: peak,
+            });
+        }
+        this.clock.freeze(previousFreeze);
+        const [first, second] = profiles;
+        const elapsed = second.seconds - first.seconds;
+        return {
+            profiles,
+            peakSpeed: (second.peakRadiusMetres - first.peakRadiusMetres) / elapsed,
+            innerEdgeSpeed: (second.innerEdgeMetres - first.innerEdgeMetres) / elapsed,
+            outerEdgeSpeed: (second.outerEdgeMetres - first.outerEdgeMetres) / elapsed,
+            energyRadiusSpeed: (second.energyRadiusMetres - first.energyRadiusMetres) / elapsed,
         };
     }
 
@@ -567,6 +768,11 @@ export class MillersPlanetApp {
             this.gargantua.enabled = isOn;
         } else if (name === "atmosphere") {
             this.atmosphere.enabled = isOn;
+        } else if (name === "sea") {
+            this.seaSimulation.enabled = isOn;
+            this.seaSurface.mesh.setEnabled(isOn);
+        } else if (name === "waveReservation") {
+            this.waveReservation.setEnabled(isOn);
         }
     }
 
@@ -585,11 +791,27 @@ export class MillersPlanetApp {
         this.cameraTransition = null;
         this.cameraMode = "shot";
         this.currentShotName = name;
+        this.postChain.settings.maximumBlurRadiusPixels = definition.depthOfField === false ? 0 : this.defaultMaximumBlurRadiusPixels;
+        if (definition.rippleStamps) {
+            this.rippleField.requestReset();
+            for (const stamp of definition.rippleStamps) {
+                if (stamp.afterSteps) {
+                    this.rippleField.queueStampAfterSteps(stamp, stamp.afterSteps);
+                } else {
+                    this.rippleField.queueStamp(stamp);
+                }
+            }
+            this.rippleField.requestPreroll(definition.ripplePrerollSteps ?? 30);
+        }
         const hiddenSystems = definition.hiddenSystems ?? [];
-        this.setSystemEnabled("testGeometry", !hiddenSystems.includes("testGeometry"));
+        for (const sceneSystemName of ["testGeometry", "sea"]) {
+            this.setSystemEnabled(sceneSystemName, !hiddenSystems.includes(sceneSystemName));
+        }
         for (const systemName of hiddenSystems) {
             this.setSystemEnabled(systemName, false);
         }
+        const shownSystems = definition.shownSystems ?? [];
+        this.setSystemEnabled("waveReservation", shownSystems.includes("waveReservation"));
         if (freezeTime) {
             this.clock.freeze(definition.timeSeconds);
         }
@@ -698,6 +920,12 @@ export class MillersPlanetApp {
         this.cameraFrame.prepare(outputWidth, outputHeight, this.beautyTargets.internalWidth, this.beautyTargets.internalHeight);
         this.testScene.update(this.clock.timeSeconds, frameIndex);
         this.atmosphere.setCameraPositionMetres(this.cameraFrame.position.x, this.cameraFrame.position.y, this.cameraFrame.position.z);
+        this.rippleCentre[0] = this.cameraFrame.position.x;
+        this.rippleCentre[1] = this.cameraFrame.position.z;
+        this.rippleField.updateWindow(this.rippleCentre[0], this.rippleCentre[1]);
+        this.seaSurface.setCentre(this.cameraFrame.position.x, this.cameraFrame.position.z);
+        this.seaSurface.writeParameters();
+        this.waveReservation.writeParameters(this.cameraFrame.position.x, this.cameraFrame.position.z);
         this.bindGargantuaTextures();
         this.writeFrameUniforms(outputWidth, outputHeight, this.clock.lastDeltaSeconds);
         const light = this.keyLightDirection;
@@ -848,7 +1076,7 @@ export class MillersPlanetApp {
         const deadline = performance.now() + timeoutMilliseconds;
         for (;;) {
             const materialsReady = meshesWithMaterials.every((mesh) => mesh.material.isReady(mesh));
-            const computeReady = this.testScene.patternCompute.isReady() && this.gargantua.isReady() && this.atmosphere.isReady();
+            const computeReady = this.testScene.patternCompute.isReady() && this.gargantua.isReady() && this.atmosphere.isReady() && this.seaSimulation.isReady() && this.rippleField.isReady();
             const postReady = this.postChain.isReady();
             if (materialsReady && computeReady && postReady) {
                 return;
@@ -862,14 +1090,26 @@ export class MillersPlanetApp {
 
     async warmUp() {
         this.testScene.lateMarkerWarmed.setEnabled(true);
-        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh]);
+        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.waveReservation.meshes]);
         this.postChain.settings.outputBlack = 1;
         this.renderFrame(performance.now(), 1 / 60);
         await this.device.queue.onSubmittedWorkDone();
         await this.measureAndApplyKeyLight();
+        await this.calibrateSeaHeight();
         for (let frameNumber = 0; frameNumber < 4; frameNumber++) {
             this.renderFrame(performance.now(), 1 / 60);
             await this.device.queue.onSubmittedWorkDone();
+        }
+        const systemsBeforeWarmUp = { ...this.systemsEnabled };
+        for (const lateSystem of ["sea", "waveReservation", "testGeometry"]) {
+            this.setSystemEnabled(lateSystem, true);
+        }
+        for (let frameNumber = 0; frameNumber < 3; frameNumber++) {
+            this.renderFrame(performance.now(), 1 / 60);
+            await this.device.queue.onSubmittedWorkDone();
+        }
+        for (const lateSystem of ["sea", "waveReservation", "testGeometry"]) {
+            this.setSystemEnabled(lateSystem, systemsBeforeWarmUp[lateSystem]);
         }
         this.testScene.patternCompute.fastMode = true;
         this.testScene.lateMarkerWarmed.setEnabled(false);
@@ -928,7 +1168,12 @@ export class MillersPlanetApp {
                 spikeCuts: this.resolution.spikeCutCount,
                 preemptiveCuts: this.resolution.preemptiveCutCount,
                 probes: this.resolution.probeCount,
+                deadlineCuts: this.resolution.deadlineCutCount,
+                stepUpsBlockedByRawSpan: this.resolution.stepUpsBlockedByRawSpan,
                 lastReason: this.resolution.lastDecisionReason,
+                clockSlowdown: this.resolution.lastClockSlowdown,
+                normalizedSpanMs: this.resolution.lastNormalizedSpanMilliseconds,
+                clockGaugeReferenceMs: this.clockGauge.referenceMilliseconds,
             },
             adapter: { ...this.adapter },
             features: this.enabledFeatureNames.slice(),
@@ -974,6 +1219,20 @@ export class MillersPlanetApp {
                 diskOuterRadius: this.gargantua.settings.diskOuterRadius,
                 diskPeakTemperature: this.gargantua.settings.diskPeakTemperature,
                 spin: this.gargantua.settings.spin,
+            },
+            sea: {
+                significantHeightMetres: this.seaSimulation.significantHeightMetres,
+                spectrumGain: this.seaSimulation.spectrumGain,
+                meanDepthMetres: this.seaSimulation.settings.meanDepthMetres,
+                gravity: this.seaSimulation.settings.gravity,
+                cascadeSizes: this.seaSimulation.settings.cascadeSizes.slice(),
+                surfaceTriangles: this.seaSurface.mesh.triangleCount,
+            },
+            ripples: {
+                stepsTaken: this.rippleField.stepsTaken,
+                windowCentre: [...this.rippleField.windowCentre],
+                halfExtentMetres: this.rippleField.halfExtentMetres,
+                texelMetres: this.rippleField.settings.texelMetres,
             },
             origin: { offset: [0, 0, 0], shifts: 0 },
             systems: { ...this.systemsEnabled },

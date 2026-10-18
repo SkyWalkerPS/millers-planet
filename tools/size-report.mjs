@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 import { formatTable } from './stats.mjs';
+import { findSourcesNewerThanBuild } from './target.mjs';
 
 export const BROTLI_BUDGET_BYTES = Number(process.env.BUDGET_BYTES || 1500000);
 const BIGGEST_COUNT = 15;
@@ -91,6 +92,11 @@ if (isMainModule) {
   const distDirectory = path.resolve(process.argv[2] || path.join(projectRoot, 'dist'));
   if (!existsSync(distDirectory) || !statSync(distDirectory).isDirectory()) {
     console.error(`${distDirectory} does not exist. Run "npm run build" first.`);
+    process.exit(1);
+  }
+  const staleSources = process.argv[2] ? [] : findSourcesNewerThanBuild(projectRoot);
+  if (staleSources.length) {
+    console.error(`dist/ is older than ${staleSources.length} source file(s) (${staleSources.slice(0, 5).join(', ')}${staleSources.length > 5 ? ', ...' : ''}), so its size would be out of date. Run "npm run build" first.`);
     process.exit(1);
   }
   const allFiles = listFiles(distDirectory);

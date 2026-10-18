@@ -38,6 +38,20 @@ export const FLIGHT_TIMELINES = {
       { untilSeconds: 30, label: 'abrupt jump to a third-person view, then final sweep', from: orbitPose(300, 3, 3.2, 1.45), to: orbitPose(420, 8, 3.2, 1.45) },
     ],
   },
+  sea: {
+    phase: 4,
+    summary: 'phase 4: eye-height sweeps over the FFT sea toward and away from Gargantua, a close look down at the water, then a step from sky only to the heaviest view with the placeholder wave and underwater pass switched on',
+    setup: [['setCameraShot', 'sea-wide']],
+    segments: [
+      { untilSeconds: 5, label: 'sweep toward Gargantua over the sea', from: orbitPose(-40, 2, 3.2, 1.45), to: orbitPose(40, 4, 3.2, 1.45), systems: { waveReservation: false } },
+      { untilSeconds: 10, label: 'abrupt jump, sweep facing away', from: orbitPose(140, -5, 3.2, 1.45), to: orbitPose(220, 0, 3.2, 1.45) },
+      { untilSeconds: 14, label: 'close view down at the water', from: orbitPose(20, -50, 1.8, 1.5), to: orbitPose(60, -35, 1.8, 1.5) },
+      { untilSeconds: 18, label: 'sky only (looking up)', from: orbitPose(40, 70, 1.5), to: orbitPose(40, 70, 1.5), stepRole: 'before' },
+      { untilSeconds: 22, label: 'step to the wave wall with the underwater pass', from: orbitPose(0, 5, 3.2, 1.45), to: orbitPose(0, 5, 3.2, 1.45), stepRole: 'after', systems: { waveReservation: true } },
+      { untilSeconds: 26, label: 'sweep under the wave wall', from: orbitPose(-30, 15, 3.2, 1.45), to: orbitPose(30, 20, 3.2, 1.45) },
+      { untilSeconds: 30, label: 'wave off, third-person sweep', from: orbitPose(300, 3, 3.2, 1.45), to: orbitPose(420, 8, 3.2, 1.45), systems: { waveReservation: false } },
+    ],
+  },
   wave: { phase: 7, stub: 'The "wave" flight is not written yet. It arrives with phase 7 (the wave timeline, plan section 8.7). Use FLIGHT=empty for now.' },
   walk: { phase: 5, stub: 'The "walk" flight is not written yet. It arrives with phase 5 (astronaut, movement and camera). Use FLIGHT=empty for now.' },
 };
@@ -142,6 +156,8 @@ export function analyseFlight({ records, firstFrameIndex, lastFrameIndex, marker
   const spans = presentRecords.map((record) => record.gpuSpanMs).filter(Number.isFinite);
   const scales = presentRecords.map((record) => record.scale).filter(Number.isFinite);
   const busy = presentRecords.map((record) => record.gpuBusyMs).filter(Number.isFinite);
+  const clockSlowdowns = presentRecords.map((record) => record.clockSlowdown).filter((value) => Number.isFinite(value) && value > 0);
+  const normalizedSpans = presentRecords.filter((record) => Number.isFinite(record.gpuSpanMs) && record.clockSlowdown > 0).map((record) => record.gpuSpanMs / Math.max(record.clockSlowdown, 1));
   const intervals = [];
   for (let index = 1; index < presentRecords.length; index++) {
     const previous = presentRecords[index - 1];
@@ -170,6 +186,8 @@ export function analyseFlight({ records, firstFrameIndex, lastFrameIndex, marker
     missingFrameCount,
     span: spanSummary,
     busy: summarise(busy),
+    clockSlowdown: summarise(clockSlowdowns),
+    normalizedSpan: summarise(normalizedSpans),
     framesOverSpanMax: spans.filter((value) => value > rule.spanMaxMs).length,
     interval: intervalSummary,
     intervalsMeasured: intervals.length,
@@ -208,6 +226,10 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
     if (anyCheckFailed(appChecks)) return { refused: true, appChecks };
     const hasOrbitCamera = await page.evaluate("typeof window.millersPlanet?.debug?.setOrbitCamera === 'function'");
     if (!hasOrbitCamera) throw new Error('millersPlanet.debug.setOrbitCamera is missing, so the flight cannot drive the camera');
+    for (const [method, ...methodArguments] of timeline.setup ?? []) {
+      await page.evaluate(`window.millersPlanet.${method}(...${JSON.stringify(methodArguments)})`);
+    }
+    await page.evaluate('window.millersPlanet.freezeTime(null)');
     await jumpCamera(page, timeline.segments[0].from);
     await sleep(settleSeconds * 1000);
     const latestBeforeFlight = await page.evaluate(LATEST_FRAME_INDEX_EXPRESSION);
@@ -223,6 +245,9 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
       const { segment, index, segmentStart } = segmentAt(timeline, flightTimeSeconds);
       if (index !== activeSegmentIndex) {
         activeSegmentIndex = index;
+        for (const [systemName, enabled] of Object.entries(segment.systems ?? {})) {
+          await page.evaluate(`window.millersPlanet.setSystemEnabled(${JSON.stringify(systemName)}, ${enabled ? 'true' : 'false'})`);
+        }
         const jump = await jumpCamera(page, poseWithinSegment(segment, segmentStart, flightTimeSeconds));
         markers.push({ label: segment.label, afterFrameIndex: jump.afterFrameIndex, timeMs: jump.timeMs, flightSeconds: Math.round(flightTimeSeconds * 100) / 100 });
         if (verbose) console.log(`  ${flightTimeSeconds.toFixed(1)} s: ${segment.label}`);
@@ -319,6 +344,7 @@ if (isMainModule) {
       if (run.otherHeadlessChromeBefore.status !== 'PASS') console.log(`  WARNING before this run: ${run.otherHeadlessChromeBefore.detail}`);
       console.log(formatVerdictTable(analysis));
       console.log(`  span p50 ${formatNumber(analysis.span.p50)} / p95 ${formatNumber(analysis.span.p95)} ms, busy p99 ${formatNumber(analysis.busy.p99)} ms, ${analysis.framesOverSpanMax} frame(s) over ${FLIGHT_PASS_RULE.spanMaxMs} ms`);
+      if (analysis.clockSlowdown.count) console.log(`  GPU clock slowdown (fixed-cost passes vs the fastest seen) p50 ${formatNumber(analysis.clockSlowdown.p50)} / max ${formatNumber(analysis.clockSlowdown.max)}; span at full clock p50 ${formatNumber(analysis.normalizedSpan.p50)} / p99 ${formatNumber(analysis.normalizedSpan.p99)} / max ${formatNumber(analysis.normalizedSpan.max)} ms (diagnostic, not the pass rule)`);
       console.log(`  interval p50 ${formatNumber(analysis.interval.p50)} / p99 ${formatNumber(analysis.interval.p99)} ms over ${analysis.intervalsMeasured} measured intervals, ${analysis.intervalsOverLimit} over the limit; scale max ${formatNumber(analysis.scale.max, 3)}; render-target reallocations ${analysis.reallocations}`);
       console.log(`  slowest frames (span, with GPU busy time in brackets; a big difference means idle gaps inside the frame): ${analysis.slowestFrames.map((frame) => `${formatNumber(frame.gpuSpanMs)} ms (busy ${formatNumber(frame.gpuBusyMs)}) at ${frame.flightSeconds} s (${frame.segment}, scale ${formatNumber(frame.scale, 3)})`).join('; ')}`);
       console.log(`  longest intervals: ${analysis.longestIntervals.map((entry) => `${formatNumber(entry.intervalMs)} ms at ${entry.flightSeconds} s (${entry.segment})`).join('; ')}`);

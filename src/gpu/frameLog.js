@@ -13,6 +13,7 @@ export class FrameLog {
         this.wavePhaseCodeBySlot = new Int32Array(frameLogCapacity);
         this.cameraModeCodeBySlot = new Int32Array(frameLogCapacity);
         this.timedBySlot = new Uint8Array(frameLogCapacity);
+        this.clockSlowdownBySlot = new Float32Array(frameLogCapacity);
         this.latestFrameIndex = -1;
     }
 
@@ -27,6 +28,7 @@ export class FrameLog {
         this.timedBySlot[slot] = 0;
         this.gpuSpanMillisecondsBySlot[slot] = 0;
         this.gpuBusyMillisecondsBySlot[slot] = 0;
+        this.clockSlowdownBySlot[slot] = 0;
         this.passMillisecondsBySlotAndLabel.fill(0, slot * maximumProfiledLabelCount, (slot + 1) * maximumProfiledLabelCount);
         if (frameIndex > this.latestFrameIndex) {
             this.latestFrameIndex = frameIndex;
@@ -47,6 +49,13 @@ export class FrameLog {
         this.timedBySlot[slot] = 1;
     }
 
+    recordClockSlowdown(frameIndex, slowdown) {
+        const slot = frameIndex % frameLogCapacity;
+        if (this.frameIndexBySlot[slot] === frameIndex) {
+            this.clockSlowdownBySlot[slot] = slowdown;
+        }
+    }
+
     exportSince(sinceFrameIndex, labelNames) {
         const firstFrameIndex = Math.max(sinceFrameIndex + 1, this.latestFrameIndex - frameLogCapacity + 1, 0);
         const exported = {
@@ -55,6 +64,7 @@ export class FrameLog {
             rafTimeMs: [],
             gpuSpanMs: [],
             gpuBusyMs: [],
+            clockSlowdown: [],
             passMs: [],
             scale: [],
             generation: [],
@@ -76,6 +86,7 @@ export class FrameLog {
             exported.rafTimeMs.push(this.rafTimeMillisecondsBySlot[slot]);
             exported.gpuSpanMs.push(this.gpuSpanMillisecondsBySlot[slot]);
             exported.gpuBusyMs.push(this.gpuBusyMillisecondsBySlot[slot]);
+            exported.clockSlowdown.push(this.clockSlowdownBySlot[slot]);
             const passRow = [];
             const labelBase = slot * maximumProfiledLabelCount;
             for (let labelIndex = 0; labelIndex < labelNames.length; labelIndex++) {

@@ -248,7 +248,7 @@ export class PassTimestampProfiler {
         }
         this.frameLog.recordGpuTiming(record.frameIndex, spanMilliseconds, busyMilliseconds, exclusiveByLabel, this.labelNames.length);
         for (let listenerIndex = 0; listenerIndex < this.timedFrameListeners.length; listenerIndex++) {
-            this.timedFrameListeners[listenerIndex](record.frameIndex, spanMilliseconds, busyMilliseconds);
+            this.timedFrameListeners[listenerIndex](record.frameIndex, spanMilliseconds, busyMilliseconds, exclusiveByLabel);
         }
     }
 

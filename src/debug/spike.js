@@ -47,7 +47,7 @@ function roundAll(values, digits = 4) {
 export class SpikeChecks {
     constructor(app) {
         this.app = app;
-        this.names = ["S0", "S0b", "S1", "S2", "S3", "S4", "S5", "S6", "S8", "S9", "S10", "S11", "S12", "S13"];
+        this.names = ["S0", "S0b", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13"];
     }
 
     async runAll() {
@@ -304,6 +304,41 @@ export class SpikeChecks {
             },
             fallbackUsed: storeCostDifference > 0.1 ? "the maximum allocation costs more than 0.1 ms; consider ?allocation=steps" : null,
         };
+    }
+
+    async checkS7() {
+        const app = this.app;
+        const simulation = app.seaSimulation;
+        app.applyShot("sea-wide", true);
+        await app.renderFramesNow(4);
+        const gridSize = 256;
+        const comparisons = [];
+        for (const [layer, level] of [[2, 6], [1, 3], [0, 8]]) {
+            const levelZero = await simulation.momentTexture.readPixels(layer, 0, null, true);
+            const deepLevel = await simulation.momentTexture.readPixels(layer, level, null, true);
+            const levelSize = gridSize >> level;
+            const blockSize = 1 << level;
+            let largestError = 0;
+            let largestValue = 0;
+            for (let row = 0; row < levelSize; row++) {
+                for (let column = 0; column < levelSize; column++) {
+                    for (let channel = 0; channel < 3; channel++) {
+                        let sum = 0;
+                        for (let sourceRow = row * blockSize; sourceRow < (row + 1) * blockSize; sourceRow++) {
+                            for (let sourceColumn = column * blockSize; sourceColumn < (column + 1) * blockSize; sourceColumn++) {
+                                sum += levelZero[(sourceRow * gridSize + sourceColumn) * 4 + channel];
+                            }
+                        }
+                        const boxAverage = sum / (blockSize * blockSize);
+                        largestError = Math.max(largestError, Math.abs(deepLevel[(row * levelSize + column) * 4 + channel] - boxAverage));
+                        largestValue = Math.max(largestValue, Math.abs(boxAverage));
+                    }
+                }
+            }
+            comparisons.push({ layer, level, levelSize, largestError, largestValue, pass: largestError <= 0.02 * Math.max(largestValue, 1e-6) + 1e-6 });
+        }
+        const mipMilliseconds = app.stats().gpu.lastPassMs.seaMips ?? null;
+        return { pass: comparisons.every((comparison) => comparison.pass && comparison.largestValue > 0), details: { comparisons, mipMilliseconds, method: "per-mip view wrappers" } };
     }
 
     async checkS8() {

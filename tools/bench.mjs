@@ -13,6 +13,7 @@ const warmupFrameCount = Number(process.env.WARMUP || 90);
 const paced = process.env.UNPACED !== '1';
 const pinnedScale = process.env.SCALE || null;
 const spanP99LimitMs = Number(process.env.SPAN_P99_LIMIT_MS || 14);
+const keepShotClockFrozen = process.env.TIME === 'frozen';
 
 function chooseShots() {
   const requested = process.argv.slice(2).length ? process.argv.slice(2) : (process.env.SHOTS ? process.env.SHOTS.split(',').map((name) => name.trim()).filter(Boolean) : []);
@@ -62,6 +63,7 @@ function summariseShotRun(normalised, integrityProblems, extra) {
 
 async function benchmarkShot(page, shot) {
   await applyShotSetup(page, shot);
+  if (!keepShotClockFrozen) await page.evaluate('window.millersPlanet.freezeTime(null)');
   const timeoutMs = Math.max(120000, (measuredFrameCount + warmupFrameCount) * 200);
   const combined = await page.evaluate(pageExpression(`(async () => {
     const api = window.millersPlanet;

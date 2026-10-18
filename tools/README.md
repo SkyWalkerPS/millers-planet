@@ -48,7 +48,7 @@ Settings: `PHASE` (default 2), `FRAMES` (settle frames, 32), `SCALE` (render sca
 
 Times the GPU on fixed shots. Each run uses a fresh Chrome. For each shot it calls `millersPlanet.benchmark({ frames, warmup, paced })` and reports the frame span (first pass start to last pass end) at p50, p95, p99 and max, the per-pass times by label (p50 and p99), and the render scale. It also checks that every measured frame was timed, that no pipelines were created after warm-up, and that there were no GPU errors. It writes `evidence/<phase>-bench.json` with the raw numbers.
 
-Run: `npm run bench` (the phase-2 shots marked for benchmarking), or `npm run bench -- empty`. Settings: `RUNS` (3; the report shows the worst value of each metric over all runs), `FRAMES` (300), `WARMUP` (90), `UNPACED=1` (render back to back instead of once per screen refresh, which keeps the GPU clock up), `SCALE` (pins the render scale), `SHOTS=a,b`, `PHASE`, `SPAN_P99_LIMIT_MS` (14). Exit code 0 = pass, 1 = a span p99 over the limit or a broken measurement, 2 = refused because a preflight check failed (for example no timestamp queries).
+Run: `npm run bench` (the phase-2 shots marked for benchmarking), or `npm run bench -- empty`. Settings: `RUNS` (3; the report shows the worst value of each metric over all runs), `FRAMES` (300), `WARMUP` (90), `UNPACED=1` (render back to back instead of once per screen refresh, which keeps the GPU clock up), `SCALE` (pins the render scale), `TIME=frozen` (keep the clock the shot freezes; by default the clock runs during the benchmark, so the sea simulation and ripples cost what they cost in play), `SHOTS=a,b`, `PHASE`, `SPAN_P99_LIMIT_MS` (14). Exit code 0 = pass, 1 = a span p99 over the limit or a broken measurement, 2 = refused because a preflight check failed (for example no timestamp queries).
 
 ## flight (`flight.mjs`)
 
@@ -56,7 +56,7 @@ The 30-second pass-rule run with the dynamic resolution controller working. The 
 
 Pass rule, checked on every one of the runs: GPU span p99 at most 14.0 ms, span max at most 16.6 ms, the gap between rendered frames at most 16.8 ms (plus 0.05 ms, because headless Chrome reports frame times in 0.1 ms steps, so a perfect 60 Hz stream reads 16.6 to 16.8 ms), render scale median at least 0.7 and minimum at least 0.5, and every frame timed. It prints a table per run and the worst value of each metric, plus the slowest frames and longest gaps with what the camera was doing, and the controller's response to the step from looking only at the sky to looking only at the ground. It writes `evidence/<phase>-flight-run<k>.json` with every frame.
 
-Run: `npm run flight`. Settings: `FLIGHT=empty` (phase 2; `wave` and `walk` are placeholders until phases 7 and 5), `RUNS` (3), `SECONDS` (30), `SETTLE_SECONDS` (3), `VERBOSE=1`, `PHASE`. `SCALE` is refused, because the controller must be free. Exit code 0 = every run passed, 1 = a run failed, 2 = refused by preflight.
+Run: `npm run flight`. Settings: `FLIGHT=empty` (phase 2, the test scene) or `FLIGHT=sea` (phase 4: the FFT sea, a close look at the water, and a step to the placeholder wave and underwater pass; a timeline can carry `setup` calls run before the flight and per-segment `systems` switches, and the clock is always released after the setup, so a shot that freezes time cannot freeze the flight; `wave` and `walk` are placeholders until phases 7 and 5), `RUNS` (3), `SECONDS` (30), `SETTLE_SECONDS` (3), `VERBOSE=1`, `PHASE`. `SCALE` is refused, because the controller must be free. Exit code 0 = every run passed, 1 = a run failed, 2 = refused by preflight.
 
 ## interact (`interact.mjs`)
 
@@ -101,7 +101,7 @@ Run: `node tools/measure-image.mjs evidence/3-sky-away.png --region sky=0,0,1,0.
 
 ## size (`size-report.mjs`)
 
-The download size of `dist/`: every file's raw, gzip (level 9) and brotli (quality 11) size, the 15 biggest files, and the total against the 1.5 MB brotli budget (1,500,000 bytes; `BUDGET_BYTES` changes it). Source maps are listed but not counted; if they exist, it also lists the biggest source modules. Run: `npm run build && npm run size` (or `node tools/size-report.mjs <folder>`). Exit code 1 if over budget or `dist/` is missing.
+The download size of `dist/`: every file's raw, gzip (level 9) and brotli (quality 11) size, the 15 biggest files, and the total against the 1.5 MB brotli budget (1,500,000 bytes; `BUDGET_BYTES` changes it). Source maps are listed but not counted; if they exist, it also lists the biggest source modules. Run: `npm run build && npm run size` (or `node tools/size-report.mjs <folder>`). Exit code 1 if over budget, `dist/` is missing, or any file under `src/` (or `index.html`, `vite.config.js`) is newer than `dist/index.html`, because a stale build would report an old size.
 
 ## comments (`check-comments.mjs`)
 

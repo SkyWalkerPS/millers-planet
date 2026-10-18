@@ -43,8 +43,15 @@ export function installPageApi() {
         },
         setLook: (look) => requireApplication().setLook(look),
         getLook: () => requireApplication().currentLook(),
-        fftModeTest: () => {
-            throw new Error("fftModeTest arrives with the sea in phase 4");
+        fftModeTest: (options) => requireApplication().measureSeaModeFrequency(options),
+        calibrateSeaHeight: () => requireApplication().calibrateSeaHeight(),
+        stampRipple: (stamp) => requireApplication().rippleField.queueStamp(stamp),
+        measureRippleRingSpeed: (options) => requireApplication().measureRippleRingSpeed(options),
+        seaProbe: async (points) => {
+            const app = requireApplication();
+            app.seaSimulation.requestProbe(points.map(([x, z]) => [x, z, 0]), true);
+            await app.renderFramesNow(1);
+            return app.seaSimulation.readProbeResults(points.length);
         },
         spike: {
             list: () => requireApplication().spike?.names ?? [],

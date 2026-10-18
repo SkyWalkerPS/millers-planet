@@ -24,15 +24,17 @@ varying vScreenNdc: vec2f;
 #include<skyComposite>
 #include<aerialPerspectiveApply>
 
-fn distantSeaPlaceholder(direction: vec3f, currentClip: vec4f) -> vec3f {
-    let eyeHeight = max(frame.cameraPositionAndTime.y, 0.3);
+fn distantSeaBeyondMesh(direction: vec3f, currentClip: vec4f) -> vec3f {
     let downward = max(-direction.y, 1e-5);
-    let distanceMetres = eyeHeight / downward;
     let reflected = vec3f(direction.x, downward, direction.z);
     let fresnel = 0.02 + 0.98 * pow(1.0 - downward, 5.0);
-    let bodyColour = vec3f(0.010, 0.014, 0.013);
-    let surface = mix(bodyColour, skyRadianceAboveHorizon(reflected), fresnel);
-    return applyAerialPerspective(surface, currentClip, distanceMetres);
+    let surface = skyRadianceAboveHorizon(reflected) * fresnel;
+    return applyAerialPerspective(surface, currentClip, 4650.0);
+}
+
+fn rayHitsSea(direction: vec3f) -> bool {
+    let origin = vec3f(0.0, skyCameraRadius(), 0.0);
+    return raySphereIntersection(origin, direction, groundRadius(atmosphere)).x > 0.0;
 }
 
 @fragment
@@ -45,10 +47,10 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let motion = screenMotionFromClipPositions(currentClip, previousClip);
     var radiance: vec3f;
     var surfaceCode = SURFACE_CODE_SKY;
-    if (direction.y >= 0.0) {
+    if (!rayHitsSea(direction)) {
         radiance = skyRadianceAboveHorizon(direction);
     } else {
-        radiance = distantSeaPlaceholder(direction, currentClip);
+        radiance = distantSeaBeyondMesh(direction, currentClip);
         surfaceCode = SURFACE_CODE_SEA;
     }
     fragmentOutputs.fragData0 = vec4f(radiance, 1.0);
