@@ -47,7 +47,7 @@ export const SHOTS = [
   { name: 'astro-close', phase: 5, kind: 'still', setup: [['setViewPreset', 1]], description: 'Close third-person preset' },
   { name: 'astro-first', phase: 5, kind: 'still', setup: [['setViewPreset', 2]], benchmarkByDefault: true, description: 'First-person preset with the faint helmet rim' },
   { name: 'visor-front-gargantua', phase: 5, kind: 'still', expectedCrops: ['visor'], benchmarkByDefault: true, description: 'Camera in front, astronaut facing Gargantua; visor crop' },
-  { name: 'walk-ripples', phase: 5, kind: 'still', description: 'Mid-walk, close preset; ripples at the shins' },
+  { name: 'walk-ripples', phase: 5, kind: 'still', settleFrames: 240, description: 'Mid-walk, close preset; ripples at the shins (240 settle frames so all 198 footstep stamps of the scripted walk land)' },
   { name: 'walk-splash', phase: 5, kind: 'still', description: 'Mid-walk, close preset; white water at the shins' },
 
   { name: 'hud', phase: 6, kind: 'still', description: 'Full frame with the clocks' },

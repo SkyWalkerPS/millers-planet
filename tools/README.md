@@ -56,7 +56,7 @@ The 30-second pass-rule run with the dynamic resolution controller working. The 
 
 Pass rule, checked on every one of the runs: GPU span p99 at most 14.0 ms, span max at most 16.6 ms, the gap between rendered frames at most 16.8 ms (plus 0.05 ms, because headless Chrome reports frame times in 0.1 ms steps, so a perfect 60 Hz stream reads 16.6 to 16.8 ms), render scale median at least 0.7 and minimum at least 0.5, and every frame timed. It prints a table per run and the worst value of each metric, plus the slowest frames and longest gaps with what the camera was doing, and the controller's response to the step from looking only at the sky to looking only at the ground. It writes `evidence/<phase>-flight-run<k>.json` with every frame.
 
-Run: `npm run flight`. Settings: `FLIGHT=empty` (phase 2, the test scene) or `FLIGHT=sea` (phase 4: the FFT sea, a close look at the water, and a step to the placeholder wave and underwater pass; a timeline can carry `setup` calls run before the flight and per-segment `systems` switches, and the clock is always released after the setup, so a shot that freezes time cannot freeze the flight; `wave` and `walk` are placeholders until phases 7 and 5), `RUNS` (3), `SECONDS` (30), `SETTLE_SECONDS` (3), `VERBOSE=1`, `PHASE`. `SCALE` is refused, because the controller must be free. Exit code 0 = every run passed, 1 = a run failed, 2 = refused by preflight.
+Run: `npm run flight`. Settings: `FLIGHT=empty` (phase 2, the test scene) or `FLIGHT=sea` (phase 4: the FFT sea, a close look at the water, and a step to the placeholder wave and underwater pass; a timeline can carry `setup` calls run before the flight and per-segment `systems` switches, and the clock is always released after the setup, so a shot that freezes time cannot freeze the flight; `FLIGHT=walk` (phase 5: player mode driven by injected keys and mouse through `millersPlanet.injectInput`: walking, orbiting while walking, Shift, stopping, C into the close and first-person presets, a turn back toward the camera, looking up); `wave` is a placeholder until phase 7), `RUNS` (3), `SECONDS` (30), `SETTLE_SECONDS` (3), `VERBOSE=1`, `PHASE`. `SCALE` is refused, because the controller must be free. Exit code 0 = every run passed, 1 = a run failed, 2 = refused by preflight.
 
 ## interact (`interact.mjs`)
 
@@ -68,6 +68,14 @@ Real keyboard, mouse and wheel input through Chrome, checked against the page's 
 7. a trackpad-style pinch (many small ctrl+wheel steps) and the `+`, `-`, `=`, `_` keys (and the keypad ones) change nothing;
 15. releasing the pointer lock clears held keys;
 17. the console stays clean.
+
+With `PHASE=5` it adds (the page boots in player mode):
+8. W and ArrowUp walk at 0.8-1.25 m/s along the camera's forward direction; S, A, D and ArrowLeft move along the matching camera-relative direction (measured over the last 0.9 s of a 2.6 s hold, within 35 degrees);
+9. Shift+W is 1.2-1.4 times faster than W;
+10. C cycles presets 0 -> 1 -> 2 -> 0, the camera arm (`stats().camera.distance`) strictly shrinks 0 -> 1 -> 2, and `helmetRimVisible` is true only in preset 2;
+11. pointer-locked mouse movement turns the yaw past 360 degrees with no clamping (moving right turns right) and holds pitch at +60 and -30 degrees;
+12. with the camera turned 120 degrees off the heading, 3 s of W leaves it under 20 degrees off;
+13. Space, E, F, Q, R, V, Ctrl and a right-click change nothing.
 
 Each "changes nothing" test sends input in one direction per block and checks the camera, `visualViewport.scale` and scrolling after every block, both with the pointer locked and unlocked. Sending +N and then -N and comparing only the start and end would pass a page that zooms (the two halves cancel out); the tests were proved against a fake page that does exactly that. Every wheel event must also have been `preventDefault()`ed, or a real trackpad would zoom the browser. Esc cannot be tested headless (Esc sent through Chrome's remote control does not release the lock), so check 15 uses `document.exitPointerLock()`.
 
@@ -98,6 +106,12 @@ Film stills must never leave `reference-stills/`: if any input is in that folder
 Measures colour in rectangles of an image: mean sRGB, mean linear RGB, linear luminance Y, sRGB luma Y', hue, saturation and (G+B)/2/R, and the contrast between two regions (as a percentage of the second region's brightness).
 
 Run: `node tools/measure-image.mjs evidence/3-sky-away.png --region sky=0,0,1,0.4 --region sea=0,0.6,1,0.4 --contrast sky,sea`. Four numbers all between 0 and 1 are fractions of the image; other numbers are CSS pixels of a 1728-pixel-wide window (`--css-width` changes that); `px:` means raw image pixels. `--json` prints JSON; `--out file.json` writes it (with the same film-stills rule as the sheet). Exit code 1 on error.
+
+## foot-drift (`foot-drift.mjs`)
+
+Planted-feet test for the astronaut. The scripted walk (`src/character/scriptedWalk.js`: idle, walk, a 90 degree turn while walking, Shift, stop, a 180 degree turn in place, walk back, stop) runs through the real controller and figure. For each foot and stance, every sole point (heel, mid, ball, toe) is remembered on the first frame it is within 1 cm of the seabed, and must stay within 2 cm of that spot while it stays in contact. It also checks that no stance leg reaches beyond 99% of its length, that the heel lands on the seabed, and the cadence at 1 m/s.
+
+Run: `node tools/foot-drift.mjs` (Node only, no GPU: 60, 30, 120 and jittered 50-70 fps) or `node tools/foot-drift.mjs --browser` (the gate measurement: the page runs the same walk at 60 fps through real rendered frames with `millersPlanet.debug.runFootDriftWalk` and records `stats().feet` every frame; writes `evidence/<PHASE>-foot-drift.json`). Exit code 1 on any failure. The worst drift is about 1 cm: that is the contact tolerance (a point counts as touching while within 1 cm, so it can still move that far as the foot rolls flat or lifts), not sliding.
 
 ## size (`size-report.mjs`)
 

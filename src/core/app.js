@@ -27,6 +27,13 @@ import { SeaSimulation } from "../sea/seaSimulation.js";
 import { SeaSurface } from "../sea/seaSurface.js";
 import { RippleField } from "../sea/rippleField.js";
 import { WaveReservation } from "../wave/waveReservation.js";
+import { createSeabedHeightFunction } from "../sea/seabedHeight.js";
+import { SuitController } from "../character/suitController.js";
+import { FOOT_EVENT_HEEL_STRIKE, SuitFigure } from "../character/suitFigure.js";
+import { SuitRenderer } from "../character/suitRender.js";
+import { BONE_HAND_LEFT, BONE_HAND_RIGHT, BONE_HELMET, BONE_NECK, BONE_PELVIS, BONE_UPPER_ARM_LEFT, BONE_UPPER_ARM_RIGHT } from "../character/suitSkeleton.js";
+import { CameraRig, cameraPresets } from "../camera/cameraRig.js";
+import { scriptedInputAt, scriptedWalk } from "../character/scriptedWalk.js";
 import { shotDefinitions, orbitCameraPose } from "../debug/shots.js";
 import { directionFromAzimuthElevation, gargantuaAzimuthRadians, gargantuaElevationRadians } from "../world/skyLayout.js";
 
@@ -147,6 +154,27 @@ export class MillersPlanetApp {
             }
         });
         this.rippleCentre = [0, 0];
+        this.seabedHeightAt = createSeabedHeightFunction({
+            meanDepthMetres: this.seaSimulation.settings.meanDepthMetres,
+            depthVariationMetres: this.seaSurface.settings.seabedDepthVariationMetres,
+            featureScalePerMetre: this.seaSurface.settings.seabedFeatureScalePerMetre,
+            waterLevelMetres: this.seaSurface.settings.waterLevelMetres,
+        });
+        this.suitController = new SuitController({ seabedHeightAt: this.seabedHeightAt, waterLevelAt: () => this.seaSurface.settings.waterLevelMetres });
+        this.suitFigure = new SuitFigure({ seabedHeightAt: this.seabedHeightAt });
+        this.suitRenderer = new SuitRenderer({ scene: this.scene, engine, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere });
+        this.cameraRig = new CameraRig();
+        this.injectedInput = { keys: new Set(), mouseDeltaPerSecondX: 0, mouseDeltaPerSecondY: 0, remainingSeconds: 0, pressedKeys: [] };
+        this.scriptedMoveOverride = null;
+        this.depthOfFieldAllowed = true;
+        this.playerInput = { moveRight: 0, moveForward: 0, shift: false, mouseX: 0, mouseY: 0 };
+        this.mouseDeltaScratch = new Float64Array(2);
+        this.pressedKeysScratch = [];
+        this.footStampPool = Array.from({ length: 8 }, () => ({ x: 0, z: 0, radius: 0.09, elongation: 1, forwardX: 0, forwardZ: 1, heightChange: 0, foam: 0, ringWeight: 0.48 }));
+        this.footStampPoolIndex = 0;
+        this.wakeStamps = [0, 1].map(() => ({ x: 0, z: 0, radius: 0.06, elongation: 1, forwardX: 0, forwardZ: 1, heightChange: 0, foam: 0, ringWeight: 0.3 }));
+        this.lastWakeCrossings = new Float64Array(4).fill(Number.NaN);
+        this.placeAstronaut(0, 0, gargantuaAzimuthRadians);
         this.waveReservation = new WaveReservation({
             scene: this.scene,
             frameUniforms: this.frameUniforms,
@@ -189,11 +217,16 @@ export class MillersPlanetApp {
             atmosphere: true,
             sea: true,
             waveReservation: false,
+            astronaut: true,
         };
         for (const name of parameters.disabledSystems) {
             this.setSystemEnabled(name, false);
         }
-        this.applyShot(parameters.shotName && shotDefinitions[parameters.shotName] ? parameters.shotName : "empty", false);
+        if (parameters.shotName && shotDefinitions[parameters.shotName]) {
+            this.applyShot(parameters.shotName, false);
+        } else {
+            this.enterPlayerMode();
+        }
         engine.onResizeObservable.add(() => {
             this.invalidateTemporalHistory();
             this.clockGauge.reset();
@@ -224,7 +257,7 @@ export class MillersPlanetApp {
     }
 
     materialsSamplingGargantua() {
-        return [this.skyDome.material, this.seaSurface.material, ...this.waveReservation.materials];
+        return [this.skyDome.material, this.seaSurface.material, ...this.waveReservation.materials, ...this.suitRenderer.materials];
     }
 
     async measureAndApplyKeyLight() {
@@ -773,6 +806,8 @@ export class MillersPlanetApp {
             this.seaSurface.mesh.setEnabled(isOn);
         } else if (name === "waveReservation") {
             this.waveReservation.setEnabled(isOn);
+        } else if (name === "astronaut") {
+            this.suitRenderer.setVisible(isOn);
         }
     }
 
@@ -781,17 +816,20 @@ export class MillersPlanetApp {
         if (!definition) {
             throw new Error(`Unknown shot ${name}`);
         }
-        const pose = definition.pose();
-        this.cameraPose.position[0] = pose.position[0];
-        this.cameraPose.position[1] = pose.position[1];
-        this.cameraPose.position[2] = pose.position[2];
-        this.cameraPose.yawRadians = pose.yawRadians;
-        this.cameraPose.pitchRadians = pose.pitchRadians;
-        this.cameraPose.verticalFieldOfViewRadians = definition.verticalFieldOfViewDegrees * degreesToRadians;
+        if (definition.pose) {
+            const pose = definition.pose();
+            this.cameraPose.position[0] = pose.position[0];
+            this.cameraPose.position[1] = pose.position[1];
+            this.cameraPose.position[2] = pose.position[2];
+            this.cameraPose.yawRadians = pose.yawRadians;
+            this.cameraPose.pitchRadians = pose.pitchRadians;
+            this.cameraPose.verticalFieldOfViewRadians = definition.verticalFieldOfViewDegrees * degreesToRadians;
+        }
         this.cameraTransition = null;
         this.cameraMode = "shot";
         this.currentShotName = name;
-        this.postChain.settings.maximumBlurRadiusPixels = definition.depthOfField === false ? 0 : this.defaultMaximumBlurRadiusPixels;
+        this.depthOfFieldAllowed = definition.depthOfField !== false;
+        this.postChain.settings.maximumBlurRadiusPixels = this.depthOfFieldAllowed ? this.defaultMaximumBlurRadiusPixels : 0;
         if (definition.rippleStamps) {
             this.rippleField.requestReset();
             for (const stamp of definition.rippleStamps) {
@@ -807,6 +845,11 @@ export class MillersPlanetApp {
         for (const sceneSystemName of ["testGeometry", "sea"]) {
             this.setSystemEnabled(sceneSystemName, !hiddenSystems.includes(sceneSystemName));
         }
+        this.setSystemEnabled("astronaut", Boolean(definition.player));
+        let crop = {};
+        if (definition.player) {
+            crop = this.preparePlayerShot(definition);
+        }
         for (const systemName of hiddenSystems) {
             this.setSystemEnabled(systemName, false);
         }
@@ -816,7 +859,391 @@ export class MillersPlanetApp {
             this.clock.freeze(definition.timeSeconds);
         }
         this.invalidateTemporalHistory();
-        return { name, crop: {} };
+        return { name, crop };
+    }
+
+    enterPlayerMode() {
+        this.cameraMode = "player";
+        this.currentShotName = null;
+        this.cameraTransition = null;
+        this.setSystemEnabled("testGeometry", false);
+        this.setSystemEnabled("sea", true);
+        this.setSystemEnabled("waveReservation", false);
+        this.setSystemEnabled("astronaut", true);
+        this.depthOfFieldAllowed = true;
+        this.postChain.settings.maximumBlurRadiusPixels = this.defaultMaximumBlurRadiusPixels;
+        if (this.warmUpComplete) {
+            this.clock.freeze(null);
+        }
+        this.applyRigToCameraPose();
+        this.invalidateTemporalHistory();
+    }
+
+    placeAstronaut(x, z, yawRadians, cameraYawRadians = yawRadians, cameraPitchRadians = null) {
+        this.suitController.teleport(x, z, yawRadians);
+        this.suitFigure.teleport(this.suitController);
+        this.suitFigure.update(0, this.suitController);
+        this.cameraRig.snapTo(this.suitController, this.suitFigure, cameraYawRadians, cameraPitchRadians);
+        this.suitRenderer.discardPreviousSkin();
+        this.suitRenderer.writeSkin(this.suitFigure.skin);
+        this.lastWakeCrossings.fill(Number.NaN);
+    }
+
+    preparePlayerShot(definition) {
+        const player = definition.player;
+        this.cameraRig.snapToPreset(player.preset ?? 0);
+        this.placeAstronaut(player.x ?? 0, player.z ?? 0, player.yawRadians, player.cameraYawRadians ?? player.yawRadians, player.cameraPitchRadians ?? null);
+        const stepSeconds = 1 / 60;
+        const walkSteps = Math.round((player.walkSeconds ?? 0) / stepSeconds);
+        const queuedStamps = [];
+        for (let stepIndex = 0; stepIndex < walkSteps; stepIndex++) {
+            const forward = player.moveForward ?? 1;
+            const right = player.moveRight ?? 0;
+            this.suitController.update(stepSeconds, right, forward, Boolean(player.shift), this.cameraRig.yawRadians);
+            this.suitFigure.update(stepSeconds, this.suitController);
+            this.cameraRig.update(stepSeconds, this.suitController, this.suitFigure, 0, 0, this.seaSurface.settings.waterLevelMetres);
+            this.collectWaterContacts((stamp) => queuedStamps.push({ stamp: { ...stamp }, afterSteps: stepIndex }));
+        }
+        this.rippleField.requestReset();
+        for (const { stamp, afterSteps } of queuedStamps) {
+            if (afterSteps > 0) {
+                this.rippleField.queueStampAfterSteps(stamp, afterSteps);
+            } else {
+                this.rippleField.queueStamp(stamp);
+            }
+        }
+        this.rippleField.requestPreroll(Math.max(walkSteps, 1) + (player.ripplePrerollExtraSteps ?? 0));
+        this.cameraRig.yawRadians = player.cameraYawRadians ?? this.cameraRig.yawRadians;
+        if (player.cameraPitchRadians !== undefined) {
+            this.cameraRig.pitchRadians = player.cameraPitchRadians;
+        }
+        this.suitRenderer.discardPreviousSkin();
+        this.suitRenderer.writeSkin(this.suitFigure.skin);
+        if (player.cameraPose) {
+            const pose = player.cameraPose(this.suitFigure, this.suitController);
+            this.cameraPose.position[0] = pose.position[0];
+            this.cameraPose.position[1] = pose.position[1];
+            this.cameraPose.position[2] = pose.position[2];
+            this.cameraPose.yawRadians = pose.yawRadians;
+            this.cameraPose.pitchRadians = pose.pitchRadians;
+            this.cameraPose.verticalFieldOfViewRadians = (pose.verticalFieldOfViewDegrees ?? definition.verticalFieldOfViewDegrees) * degreesToRadians;
+            this.updateHelmetVisibility();
+        } else {
+            this.cameraRig.update(0, this.suitController, this.suitFigure, 0, 0, this.seaSurface.settings.waterLevelMetres);
+            this.applyRigToCameraPose();
+        }
+        if (player.cropAroundHelmet) {
+            return { visor: this.helmetCropRectangle(player.cropAroundHelmet) };
+        }
+        return {};
+    }
+
+    helmetCropRectangle(halfSizeMetres) {
+        const output = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
+        const pose = this.cameraPose;
+        this.cameraFrame.setPose(pose.position[0], pose.position[1], pose.position[2], pose.yawRadians, pose.pitchRadians);
+        this.cameraFrame.setVerticalFieldOfView(pose.verticalFieldOfViewRadians);
+        const jitterWasOn = this.cameraFrame.jitterEnabled;
+        this.cameraFrame.jitterEnabled = false;
+        this.cameraFrame.prepare(output[0], output[1], this.beautyTargets.internalWidth, this.beautyTargets.internalHeight);
+        this.cameraFrame.jitterEnabled = jitterWasOn;
+        const matrix = this.cameraFrame.viewProjection.m;
+        const world = this.suitFigure.world;
+        const centre = [world[BONE_HELMET * 16 + 12], world[BONE_HELMET * 16 + 13], world[BONE_HELMET * 16 + 14]];
+        let minimumX = Infinity;
+        let maximumX = -Infinity;
+        let minimumY = Infinity;
+        let maximumY = -Infinity;
+        for (const offsetX of [-halfSizeMetres, halfSizeMetres]) {
+            for (const offsetY of [-halfSizeMetres, halfSizeMetres]) {
+                for (const offsetZ of [-halfSizeMetres, halfSizeMetres]) {
+                    const x = centre[0] + offsetX;
+                    const y = centre[1] + offsetY;
+                    const z = centre[2] + offsetZ;
+                    const clipX = x * matrix[0] + y * matrix[4] + z * matrix[8] + matrix[12];
+                    const clipY = x * matrix[1] + y * matrix[5] + z * matrix[9] + matrix[13];
+                    const clipW = x * matrix[3] + y * matrix[7] + z * matrix[11] + matrix[15];
+                    const screenX = (clipX / clipW * 0.5 + 0.5) * output[0];
+                    const screenY = (0.5 - clipY / clipW * 0.5) * output[1];
+                    minimumX = Math.min(minimumX, screenX);
+                    maximumX = Math.max(maximumX, screenX);
+                    minimumY = Math.min(minimumY, screenY);
+                    maximumY = Math.max(maximumY, screenY);
+                }
+            }
+        }
+        const cssScale = window.devicePixelRatio || 1;
+        const left = Math.max(0, Math.floor(minimumX / cssScale));
+        const top = Math.max(0, Math.floor(minimumY / cssScale));
+        const right = Math.min(output[0] / cssScale, Math.ceil(maximumX / cssScale));
+        const bottom = Math.min(output[1] / cssScale, Math.ceil(maximumY / cssScale));
+        return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+    }
+
+    gatherPlayerInput(deltaSeconds) {
+        const input = this.input;
+        const injected = this.injectedInput;
+        const held = (code) => input.isHeld(code) || injected.keys.has(code);
+        let moveForward = 0;
+        let moveRight = 0;
+        if (held("KeyW") || held("ArrowUp")) {
+            moveForward += 1;
+        }
+        if (held("KeyS") || held("ArrowDown")) {
+            moveForward -= 1;
+        }
+        if (held("KeyD") || held("ArrowRight")) {
+            moveRight += 1;
+        }
+        if (held("KeyA") || held("ArrowLeft")) {
+            moveRight -= 1;
+        }
+        const player = this.playerInput;
+        const scripted = this.scriptedMoveOverride;
+        player.moveForward = scripted ? scripted.moveForward : moveForward;
+        player.moveRight = scripted ? scripted.moveRight : moveRight;
+        player.shift = scripted ? Boolean(scripted.shift) : held("ShiftLeft") || held("ShiftRight");
+        input.consumeMouseDelta(this.mouseDeltaScratch);
+        player.mouseX = this.mouseDeltaScratch[0];
+        player.mouseY = this.mouseDeltaScratch[1];
+        if (injected.remainingSeconds > 0) {
+            const used = Math.min(Math.max(deltaSeconds, 0), injected.remainingSeconds);
+            player.mouseX += injected.mouseDeltaPerSecondX * used;
+            player.mouseY += injected.mouseDeltaPerSecondY * used;
+            injected.remainingSeconds -= used;
+            if (injected.remainingSeconds <= 1e-9) {
+                injected.remainingSeconds = 0;
+                injected.keys.clear();
+            }
+        }
+        input.takePressedKeys(this.pressedKeysScratch);
+        for (const code of injected.pressedKeys) {
+            this.pressedKeysScratch.push(code);
+        }
+        injected.pressedKeys.length = 0;
+        for (const code of this.pressedKeysScratch) {
+            if (code === "KeyC") {
+                this.cameraRig.cyclePreset();
+            }
+        }
+        return player;
+    }
+
+    async runFootDriftWalk({ script = scriptedWalk, durationSeconds = 27, stepSeconds = 1 / 60, startX = 3.1, startZ = -2.4, startYawDegrees = 0 } = {}) {
+        this.enterPlayerMode();
+        this.cameraRig.snapToPreset(0);
+        const startYaw = (startYawDegrees * Math.PI) / 180;
+        this.placeAstronaut(startX, startZ, startYaw, startYaw);
+        this.suitFigure.maximumStanceReachExcessMetres = 0;
+        const samples = [];
+        this.liveLoopPausedCount++;
+        try {
+            let seconds = 0;
+            let frameNumber = 0;
+            while (seconds < durationSeconds) {
+                const input = scriptedInputAt(script, seconds);
+                this.scriptedMoveOverride = { moveRight: input.moveRight, moveForward: input.moveForward, shift: input.shift, inputYawRadians: startYaw };
+                this.renderFrame(performance.now(), stepSeconds);
+                seconds += stepSeconds;
+                frameNumber++;
+                const feet = this.stats().feet;
+                samples.push({
+                    seconds,
+                    label: input.label,
+                    feet: feet.map((foot) => ({ inStance: foot.inStance, stanceSerial: foot.stanceSerial, contactMask: foot.contactMask, solePoints: [foot.heel, foot.mid, foot.ball, foot.toe] })),
+                });
+                if (frameNumber % 4 === 0) {
+                    await this.device.queue.onSubmittedWorkDone();
+                }
+            }
+            await this.waitForGpuTimings();
+        } finally {
+            this.scriptedMoveOverride = null;
+            this.liveLoopPausedCount--;
+            this.pacer.reset();
+            this.lastRenderedRafTimeMilliseconds = -1;
+        }
+        return {
+            samples,
+            maximumStanceReachExcessMetres: this.suitFigure.maximumStanceReachExcessMetres,
+            stances: this.suitFigure.feet.map((foot) => foot.stanceSerial),
+            gpuErrors: this.gpuErrors.messages ? [...this.gpuErrors.messages] : [],
+        };
+    }
+
+    injectInput({ keys = [], mouseDelta = [0, 0], durationMs = 0, press = [] } = {}) {
+        const injected = this.injectedInput;
+        injected.keys.clear();
+        for (const code of keys) {
+            injected.keys.add(code);
+        }
+        const durationSeconds = Math.max(durationMs, 0) / 1000;
+        injected.remainingSeconds = durationSeconds;
+        injected.mouseDeltaPerSecondX = durationSeconds > 0 ? mouseDelta[0] / durationSeconds : 0;
+        injected.mouseDeltaPerSecondY = durationSeconds > 0 ? mouseDelta[1] / durationSeconds : 0;
+        if (durationSeconds === 0 && (mouseDelta[0] || mouseDelta[1])) {
+            this.input.pendingMouseDeltaX += mouseDelta[0];
+            this.input.pendingMouseDeltaY += mouseDelta[1];
+        }
+        for (const code of press) {
+            injected.pressedKeys.push(code);
+        }
+        return { keys: [...injected.keys], durationMs, press };
+    }
+
+    updatePlayer(deltaSeconds) {
+        const player = this.gatherPlayerInput(deltaSeconds);
+        const inputYaw = this.scriptedMoveOverride ? this.scriptedMoveOverride.inputYawRadians : this.cameraRig.yawRadians;
+        this.suitController.update(deltaSeconds, player.moveRight, player.moveForward, player.shift, inputYaw);
+        this.suitFigure.update(deltaSeconds, this.suitController);
+        const forwardDominantInput = player.moveForward > 0.5 && Math.abs(player.moveRight) < 0.5;
+        this.cameraRig.update(deltaSeconds, this.suitController, this.suitFigure, player.mouseX, player.mouseY, this.seaSurface.settings.waterLevelMetres, forwardDominantInput);
+        this.applyRigToCameraPose();
+        this.collectWaterContacts((stamp) => this.rippleField.queueStamp(stamp));
+    }
+
+    applyRigToCameraPose() {
+        const rig = this.cameraRig;
+        this.cameraPose.position[0] = rig.position[0];
+        this.cameraPose.position[1] = rig.position[1];
+        this.cameraPose.position[2] = rig.position[2];
+        this.cameraPose.yawRadians = rig.outputYawRadians;
+        this.cameraPose.pitchRadians = rig.outputPitchRadians;
+        this.cameraPose.verticalFieldOfViewRadians = rig.verticalFieldOfViewRadians;
+        this.viewPreset = rig.presetIndex;
+        const rimAmount = Math.min(1, Math.max(0, (rig.firstPersonAmount - 0.6) / 0.4));
+        this.postChain.settings.helmetRimAmount = rimAmount * rimAmount * (3 - 2 * rimAmount);
+        this.postChain.settings.focusDistanceMetres = rig.focusDistanceMetres;
+        this.postChain.settings.maximumBlurRadiusPixels = this.depthOfFieldAllowed ? this.defaultMaximumBlurRadiusPixels * (1 - rig.firstPersonAmount) : 0;
+        this.updateHelmetVisibility();
+    }
+
+    updateHelmetVisibility() {
+        const world = this.suitFigure.world;
+        const pose = this.cameraPose.position;
+        const distanceToHelmet = Math.hypot(world[BONE_HELMET * 16 + 12] - pose[0], world[BONE_HELMET * 16 + 13] - pose[1], world[BONE_HELMET * 16 + 14] - pose[2]);
+        this.suitRenderer.setFirstPerson(distanceToHelmet < 0.32);
+    }
+
+    writeAstronautProxies() {
+        const sea = this.seaSurface;
+        const data = sea.astronautCapsuleData;
+        const bounds = sea.astronautBounds;
+        if (!this.systemsEnabled.astronaut) {
+            bounds[3] = 0;
+            return;
+        }
+        const figure = this.suitFigure;
+        const world = figure.world;
+        let capsule = 0;
+        const writeCapsule = (startX, startY, startZ, endX, endY, endZ, radius, materialCode) => {
+            const offset = capsule * 8;
+            data[offset] = startX;
+            data[offset + 1] = startY;
+            data[offset + 2] = startZ;
+            data[offset + 3] = radius;
+            data[offset + 4] = endX;
+            data[offset + 5] = endY;
+            data[offset + 6] = endZ;
+            data[offset + 7] = materialCode;
+            capsule++;
+        };
+        const bonePosition = (bone, axis) => world[bone * 16 + 12 + axis];
+        for (let footIndex = 0; footIndex < 2; footIndex++) {
+            const sole = figure.feet[footIndex].solePoints;
+            writeCapsule(sole[0], sole[1] + 0.055, sole[2], sole[9], sole[10] + 0.04, sole[11], 0.06, 1);
+        }
+        for (let footIndex = 0; footIndex < 2; footIndex++) {
+            const ankle = figure.feet[footIndex].ankle;
+            const kneeX = figure.kneePositions[footIndex * 3];
+            const kneeY = figure.kneePositions[footIndex * 3 + 1];
+            const kneeZ = figure.kneePositions[footIndex * 3 + 2];
+            const shinLength = Math.hypot(kneeX - ankle[0], kneeY - ankle[1], kneeZ - ankle[2]) || 1;
+            const shaftFraction = 0.11 / shinLength;
+            writeCapsule(ankle[0], ankle[1], ankle[2], ankle[0] + (kneeX - ankle[0]) * shaftFraction, ankle[1] + (kneeY - ankle[1]) * shaftFraction, ankle[2] + (kneeZ - ankle[2]) * shaftFraction, 0.09, 1);
+        }
+        for (let footIndex = 0; footIndex < 2; footIndex++) {
+            const ankle = figure.feet[footIndex].ankle;
+            const kneeX = figure.kneePositions[footIndex * 3];
+            const kneeY = figure.kneePositions[footIndex * 3 + 1];
+            const kneeZ = figure.kneePositions[footIndex * 3 + 2];
+            const shinLength = Math.hypot(kneeX - ankle[0], kneeY - ankle[1], kneeZ - ankle[2]) || 1;
+            const shaftFraction = 0.11 / shinLength;
+            writeCapsule(ankle[0] + (kneeX - ankle[0]) * shaftFraction, ankle[1] + (kneeY - ankle[1]) * shaftFraction, ankle[2] + (kneeZ - ankle[2]) * shaftFraction, kneeX, kneeY, kneeZ, 0.086, 0);
+        }
+        for (let footIndex = 0; footIndex < 2; footIndex++) {
+            writeCapsule(
+                figure.hipPositions[footIndex * 3], figure.hipPositions[footIndex * 3 + 1], figure.hipPositions[footIndex * 3 + 2],
+                figure.kneePositions[footIndex * 3], figure.kneePositions[footIndex * 3 + 1], figure.kneePositions[footIndex * 3 + 2], 0.105, 0,
+            );
+        }
+        writeCapsule(bonePosition(BONE_PELVIS, 0), bonePosition(BONE_PELVIS, 1) - 0.08, bonePosition(BONE_PELVIS, 2), bonePosition(BONE_NECK, 0), bonePosition(BONE_NECK, 1) - 0.06, bonePosition(BONE_NECK, 2), 0.2, 0);
+        writeCapsule(bonePosition(BONE_HELMET, 0), bonePosition(BONE_HELMET, 1), bonePosition(BONE_HELMET, 2), bonePosition(BONE_HELMET, 0), bonePosition(BONE_HELMET, 1), bonePosition(BONE_HELMET, 2), 0.17, 0);
+        for (const [upperBone, handBone] of [[BONE_UPPER_ARM_LEFT, BONE_HAND_LEFT], [BONE_UPPER_ARM_RIGHT, BONE_HAND_RIGHT]]) {
+            writeCapsule(bonePosition(upperBone, 0), bonePosition(upperBone, 1), bonePosition(upperBone, 2), bonePosition(handBone, 0), bonePosition(handBone, 1), bonePosition(handBone, 2), 0.07, 0);
+        }
+        bounds[0] = this.suitController.positionX;
+        bounds[1] = this.suitController.positionY + 0.95;
+        bounds[2] = this.suitController.positionZ;
+        bounds[3] = 0.55;
+    }
+
+    collectWaterContacts(emitStamp) {
+        const figure = this.suitFigure;
+        const waterLevel = this.seaSurface.settings.waterLevelMetres;
+        for (let eventIndex = 0; eventIndex < figure.eventCount; eventIndex++) {
+            const stamp = this.footStampPool[this.footStampPoolIndex];
+            this.footStampPoolIndex = (this.footStampPoolIndex + 1) % this.footStampPool.length;
+            const yaw = figure.eventYaws[eventIndex];
+            const strength = figure.eventStrengths[eventIndex];
+            const heelStrike = figure.eventKinds[eventIndex] === FOOT_EVENT_HEEL_STRIKE;
+            stamp.x = figure.eventPositions[eventIndex * 3] + Math.sin(yaw) * (heelStrike ? 0.1 : -0.05);
+            stamp.z = figure.eventPositions[eventIndex * 3 + 2] + Math.cos(yaw) * (heelStrike ? 0.1 : -0.05);
+            stamp.radius = heelStrike ? 0.09 : 0.07;
+            stamp.elongation = heelStrike ? 1.7 : 1.3;
+            stamp.forwardX = Math.sin(yaw);
+            stamp.forwardZ = Math.cos(yaw);
+            stamp.heightChange = (heelStrike ? 0.02 : 0.01) * strength;
+            stamp.foam = (heelStrike ? 0.32 : 0.14) * strength;
+            stamp.ringWeight = 0.48;
+            emitStamp(stamp);
+        }
+        for (let footIndex = 0; footIndex < 2; footIndex++) {
+            const foot = figure.feet[footIndex];
+            const kneeY = figure.kneePositions[footIndex * 3 + 1];
+            const ankleY = foot.ankle[1];
+            const previousX = this.lastWakeCrossings[footIndex * 2];
+            const previousZ = this.lastWakeCrossings[footIndex * 2 + 1];
+            if (!(kneeY > waterLevel && ankleY < waterLevel)) {
+                this.lastWakeCrossings[footIndex * 2] = Number.NaN;
+                continue;
+            }
+            const fraction = (kneeY - waterLevel) / (kneeY - ankleY);
+            const crossingX = figure.kneePositions[footIndex * 3] + (foot.ankle[0] - figure.kneePositions[footIndex * 3]) * fraction;
+            const crossingZ = figure.kneePositions[footIndex * 3 + 2] + (foot.ankle[2] - figure.kneePositions[footIndex * 3 + 2]) * fraction;
+            this.lastWakeCrossings[footIndex * 2] = crossingX;
+            this.lastWakeCrossings[footIndex * 2 + 1] = crossingZ;
+            if (Number.isNaN(previousX)) {
+                continue;
+            }
+            const movedX = crossingX - previousX;
+            const movedZ = crossingZ - previousZ;
+            const moved = Math.hypot(movedX, movedZ);
+            if (moved < 0.002) {
+                continue;
+            }
+            const stamp = this.wakeStamps[footIndex];
+            stamp.x = crossingX;
+            stamp.z = crossingZ;
+            stamp.radius = 0.06;
+            stamp.elongation = 1 + Math.min(moved / 0.02, 1);
+            stamp.forwardX = movedX / moved;
+            stamp.forwardZ = movedZ / moved;
+            stamp.heightChange = Math.min(moved * 0.6, 0.015);
+            stamp.foam = Math.min(moved * 4, 0.1);
+            stamp.ringWeight = 0.3;
+            emitStamp(stamp);
+        }
     }
 
     invalidateTemporalHistory() {
@@ -854,6 +1281,9 @@ export class MillersPlanetApp {
     }
 
     updateCamera(deltaSeconds) {
+        if (this.cameraMode === "player") {
+            this.updatePlayer(this.clock.lastDeltaSeconds);
+        }
         const transition = this.cameraTransition;
         if (transition) {
             transition.elapsedSeconds += deltaSeconds;
@@ -920,8 +1350,13 @@ export class MillersPlanetApp {
         this.cameraFrame.prepare(outputWidth, outputHeight, this.beautyTargets.internalWidth, this.beautyTargets.internalHeight);
         this.testScene.update(this.clock.timeSeconds, frameIndex);
         this.atmosphere.setCameraPositionMetres(this.cameraFrame.position.x, this.cameraFrame.position.y, this.cameraFrame.position.z);
-        this.rippleCentre[0] = this.cameraFrame.position.x;
-        this.rippleCentre[1] = this.cameraFrame.position.z;
+        const followAstronaut = this.systemsEnabled.astronaut;
+        this.rippleCentre[0] = followAstronaut ? this.suitController.positionX : this.cameraFrame.position.x;
+        this.rippleCentre[1] = followAstronaut ? this.suitController.positionZ : this.cameraFrame.position.z;
+        if (followAstronaut && this.cameraMode === "player") {
+            this.suitRenderer.writeSkin(this.suitFigure.skin);
+        }
+        this.writeAstronautProxies();
         this.rippleField.updateWindow(this.rippleCentre[0], this.rippleCentre[1]);
         this.seaSurface.setCentre(this.cameraFrame.position.x, this.cameraFrame.position.z);
         this.seaSurface.writeParameters();
@@ -1090,7 +1525,7 @@ export class MillersPlanetApp {
 
     async warmUp() {
         this.testScene.lateMarkerWarmed.setEnabled(true);
-        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.waveReservation.meshes]);
+        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.waveReservation.meshes, ...this.suitRenderer.meshes]);
         this.postChain.settings.outputBlack = 1;
         this.renderFrame(performance.now(), 1 / 60);
         await this.device.queue.onSubmittedWorkDone();
@@ -1101,14 +1536,14 @@ export class MillersPlanetApp {
             await this.device.queue.onSubmittedWorkDone();
         }
         const systemsBeforeWarmUp = { ...this.systemsEnabled };
-        for (const lateSystem of ["sea", "waveReservation", "testGeometry"]) {
+        for (const lateSystem of ["sea", "waveReservation", "testGeometry", "astronaut"]) {
             this.setSystemEnabled(lateSystem, true);
         }
         for (let frameNumber = 0; frameNumber < 3; frameNumber++) {
             this.renderFrame(performance.now(), 1 / 60);
             await this.device.queue.onSubmittedWorkDone();
         }
-        for (const lateSystem of ["sea", "waveReservation", "testGeometry"]) {
+        for (const lateSystem of ["sea", "waveReservation", "testGeometry", "astronaut"]) {
             this.setSystemEnabled(lateSystem, systemsBeforeWarmUp[lateSystem]);
         }
         this.testScene.patternCompute.fastMode = true;
@@ -1190,15 +1625,48 @@ export class MillersPlanetApp {
                 distanceMetres: null,
             },
             ship: { state: 0, position: null, tiltDegrees: 0, visible: false },
-            astronaut: { position: null, headingDegrees: 0, horizontalSpeed: 0, braced: false, inputLocked: false, wetness: 0 },
-            feet: [],
+            astronaut: {
+                visible: this.systemsEnabled.astronaut,
+                position: [this.suitController.positionX, this.suitController.positionY, this.suitController.positionZ],
+                headingDegrees: (this.suitController.facingYaw * 180) / Math.PI,
+                horizontalSpeed: this.suitController.planarSpeed,
+                gaitMode: ["idle", "walking", "stopping"][this.suitFigure.gaitMode],
+                turningInPlace: this.suitController.turningInPlace,
+                pelvisHeight: this.suitFigure.pelvisPosition[1] - this.suitController.positionY,
+                maximumStanceReachExcessMetres: this.suitFigure.maximumStanceReachExcessMetres,
+                braced: false,
+                inputLocked: this.suitController.inputLocked,
+                wetness: 0,
+                triangles: this.suitRenderer.triangleCount,
+            },
+            feet: this.suitFigure.feet.map((foot) => ({
+                side: foot.side < 0 ? "left" : "right",
+                inStance: foot.planted,
+                stanceSerial: foot.stanceSerial,
+                contactMask: foot.contactMask,
+                plantPosition: Array.from(foot.plantAnkle),
+                plantYawDegrees: (foot.plantYaw * 180) / Math.PI,
+                ankle: Array.from(foot.ankle),
+                pitchDegrees: (foot.pitch * 180) / Math.PI,
+                heel: Array.from(foot.solePoints.subarray(0, 3)),
+                mid: Array.from(foot.solePoints.subarray(3, 6)),
+                ball: Array.from(foot.solePoints.subarray(6, 9)),
+                toe: Array.from(foot.solePoints.subarray(9, 12)),
+            })),
             camera: {
                 preset: this.viewPreset,
+                presetName: cameraPresets[this.cameraRig.presetIndex].name,
+                presetChanges: this.cameraRig.presetChangeCount,
+                firstPersonAmount: this.cameraRig.firstPersonAmount,
+                largestFrameMoveMetres: this.cameraRig.largestFrameMoveMetres,
+                rigYawDegrees: (this.cameraRig.yawRadians * 180) / Math.PI,
+                rigPitchDegrees: (this.cameraRig.pitchRadians * 180) / Math.PI,
                 mode: this.cameraMode,
                 shot: this.currentShotName,
                 yawDegrees: (cameraFrame.yawRadians * 180) / Math.PI,
                 pitchDegrees: (cameraFrame.pitchRadians * 180) / Math.PI,
-                distance: null,
+                distance: this.cameraRig.armLengthMetres,
+                focusDistanceMetres: this.cameraRig.focusDistanceMetres,
                 fovDegrees: (cameraFrame.verticalFieldOfViewRadians * 180) / Math.PI,
                 position: [cameraFrame.position.x, cameraFrame.position.y, cameraFrame.position.z],
             },

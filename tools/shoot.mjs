@@ -48,7 +48,7 @@ try {
       }
       pageIsFresh = false;
       const shotResult = await applyShotSetup(page, shot);
-      const frameResult = await page.evaluate(pageExpression(`window.millersPlanet.renderFrames(${settleFrameCount})`));
+      const frameResult = await page.evaluate(pageExpression(`window.millersPlanet.renderFrames(${shot.settleFrames ?? settleFrameCount})`));
       const pageState = await page.evaluate(pageExpression(`(() => {
         const stats = window.millersPlanet.stats();
         return { gpuErrors: stats.gpuErrors || [], cameraMode: stats.camera?.mode, wavePhase: stats.wave?.phase, shipState: stats.ship?.state };

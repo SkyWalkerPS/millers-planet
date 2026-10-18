@@ -53,7 +53,21 @@ export const FLIGHT_TIMELINES = {
     ],
   },
   wave: { phase: 7, stub: 'The "wave" flight is not written yet. It arrives with phase 7 (the wave timeline, plan section 8.7). Use FLIGHT=empty for now.' },
-  walk: { phase: 5, stub: 'The "walk" flight is not written yet. It arrives with phase 5 (astronaut, movement and camera). Use FLIGHT=empty for now.' },
+  walk: {
+    phase: 5,
+    summary: 'phase 5: the astronaut in player mode driven by injected keys and mouse: walking, orbiting the camera while walking, Shift, stopping, the close and first-person presets, a turn back toward the camera, and looking up at Gargantua',
+    setup: [['debug.enterPlayerMode'], ['debug.setAstronautPosition', { x: 0, z: 0, yawDegrees: 0 }]],
+    segments: [
+      { untilSeconds: 6, label: 'walk forward (W)', input: { keys: ['KeyW'] } },
+      { untilSeconds: 10, label: 'walk while orbiting the camera right', input: { keys: ['KeyW'], mouseCountsPerSecond: [300, 0] } },
+      { untilSeconds: 13, label: 'Shift walk', input: { keys: ['ShiftLeft', 'KeyW'] } },
+      { untilSeconds: 15, label: 'stop', input: { keys: [] } },
+      { untilSeconds: 19, label: 'C: close preset, walk', input: { keys: ['KeyW'], pressAtStart: ['KeyC'] } },
+      { untilSeconds: 23, label: 'C: first person, walk and look around', input: { keys: ['KeyW'], mouseCountsPerSecond: [450, -60], pressAtStart: ['KeyC'] } },
+      { untilSeconds: 26, label: 'C: back to third person, turn and walk toward the camera (S)', input: { keys: ['KeyS'], pressAtStart: ['KeyC'] } },
+      { untilSeconds: 30, label: 'stop and look up at the sky', input: { keys: [], mouseCountsPerSecond: [0, -220] } },
+    ],
+  },
 };
 
 const smoothstep = (fraction) => fraction * fraction * (3 - 2 * fraction);
@@ -85,6 +99,19 @@ const LATEST_FRAME_INDEX_EXPRESSION = `(() => {
 
 async function moveCamera(page, pose, transitionSeconds) {
   await page.evaluate(`window.millersPlanet.debug.setOrbitCamera(${JSON.stringify({ ...pose, transitionSeconds })})`);
+}
+
+async function startInputSegment(page, input) {
+  return page.evaluate(`(() => {
+    window.millersPlanet.injectInput({ keys: ${JSON.stringify(input.keys ?? [])}, press: ${JSON.stringify(input.pressAtStart ?? [])}, durationMs: ${DRIVER_TICK_MS + 60} });
+    return { afterFrameIndex: ${LATEST_FRAME_INDEX_EXPRESSION}, timeMs: performance.now() };
+  })()`);
+}
+
+async function holdInput(page, input) {
+  const tickSeconds = DRIVER_TICK_MS / 1000;
+  const [countsX, countsY] = input.mouseCountsPerSecond ?? [0, 0];
+  await page.evaluate(`window.millersPlanet.injectInput({ keys: ${JSON.stringify(input.keys ?? [])}, mouseDelta: [${countsX * tickSeconds}, ${countsY * tickSeconds}], durationMs: ${DRIVER_TICK_MS + 60} })`);
 }
 
 async function jumpCamera(page, pose) {
@@ -230,7 +257,7 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
       await page.evaluate(`window.millersPlanet.${method}(...${JSON.stringify(methodArguments)})`);
     }
     await page.evaluate('window.millersPlanet.freezeTime(null)');
-    await jumpCamera(page, timeline.segments[0].from);
+    if (!timeline.segments[0].input) await jumpCamera(page, timeline.segments[0].from);
     await sleep(settleSeconds * 1000);
     const latestBeforeFlight = await page.evaluate(LATEST_FRAME_INDEX_EXPRESSION);
     const recordsByFrameIndex = new Map();
@@ -248,12 +275,16 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
         for (const [systemName, enabled] of Object.entries(segment.systems ?? {})) {
           await page.evaluate(`window.millersPlanet.setSystemEnabled(${JSON.stringify(systemName)}, ${enabled ? 'true' : 'false'})`);
         }
-        const jump = await jumpCamera(page, poseWithinSegment(segment, segmentStart, flightTimeSeconds));
+        const jump = segment.input ? await startInputSegment(page, segment.input) : await jumpCamera(page, poseWithinSegment(segment, segmentStart, flightTimeSeconds));
         markers.push({ label: segment.label, afterFrameIndex: jump.afterFrameIndex, timeMs: jump.timeMs, flightSeconds: Math.round(flightTimeSeconds * 100) / 100 });
         if (verbose) console.log(`  ${flightTimeSeconds.toFixed(1)} s: ${segment.label}`);
       }
       const targetSeconds = Math.min(flightTimeSeconds + DRIVER_TICK_MS / 1000, segment.untilSeconds, flightSeconds);
-      await moveCamera(page, poseWithinSegment(segment, segmentStart, targetSeconds), Math.max(0, targetSeconds - flightTimeSeconds));
+      if (segment.input) {
+        await holdInput(page, segment.input);
+      } else {
+        await moveCamera(page, poseWithinSegment(segment, segmentStart, targetSeconds), Math.max(0, targetSeconds - flightTimeSeconds));
+      }
       if (Date.now() >= nextLogReadMs) {
         nextLogReadMs += LOG_READ_EVERY_MS;
         const log = await readFrameLogInto(page, Math.max(latestBeforeFlight, highestSeenFrameIndex - LOG_OVERLAP_FRAMES), recordsByFrameIndex);

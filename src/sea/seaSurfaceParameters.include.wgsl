@@ -9,6 +9,8 @@ struct SeaSurfaceParameters {
     seabedShape: vec4f,
     rippleWindowCentreHalfTexel: vec4f,
     seabedRippleMarks: vec4f,
+    astronautBoundsAndEnabled: vec4f,
+    astronautCapsules: array<vec4f, 24>,
 };
 
 fn rippleWindowFade(world: vec2f) -> f32 {

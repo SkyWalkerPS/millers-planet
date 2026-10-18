@@ -25,7 +25,7 @@ const CHECK_TITLES = {
   17: 'the console stays clean',
 };
 const CHECK_PHASES = { 1: 2, 2: 6, 3: 6, 4: 2, 5: 2, 6: 2, 7: 2, 8: 5, 9: 5, 10: 5, 11: 5, 12: 5, 13: 5, 14: 7, 15: 2, 16: 6, 17: 2 };
-const NOT_WRITTEN_YET = new Set([2, 3, 8, 9, 10, 11, 12, 13, 14]);
+const NOT_WRITTEN_YET = new Set([2, 3, 14]);
 const WHEEL_EVENT_GAP_MS = 16;
 const SETTLE_AFTER_BLOCK_MS = 200;
 const DISTANCE_TOLERANCE_METRES = 1e-3;
@@ -123,6 +123,47 @@ async function keyBlock(page, { label, code, modifiers = [], presses = 5 }, expe
   await sleep(SETTLE_AFTER_BLOCK_MS);
   const after = await readViewState(page);
   return { label, problems: describeViewChanges(before, after, expectedDevicePixelRatio), after };
+}
+
+async function readPlayer(page) {
+  return page.evaluate(pageExpression(`(() => {
+    const stats = window.millersPlanet.stats();
+    return {
+      position: stats.astronaut.position,
+      headingDegrees: stats.astronaut.headingDegrees,
+      preset: stats.camera.preset,
+      distance: stats.camera.distance,
+      rigYawDegrees: stats.camera.rigYawDegrees,
+      rigPitchDegrees: stats.camera.rigPitchDegrees,
+      helmetRimVisible: stats.helmetRimVisible,
+      mode: stats.camera.mode,
+      timeMs: performance.now(),
+    };
+  })()`));
+}
+
+const wrapDegrees = (value) => ((((value + 180) % 360) + 360) % 360) - 180;
+
+function horizontalMove(from, to) {
+  const deltaX = to.position[0] - from.position[0];
+  const deltaZ = to.position[2] - from.position[2];
+  return {
+    distance: Math.hypot(deltaX, deltaZ),
+    seconds: (to.timeMs - from.timeMs) / 1000,
+    directionDegrees: (Math.atan2(deltaX, deltaZ) * 180) / Math.PI,
+  };
+}
+
+async function steadySpeed(page, codes, modifiers = []) {
+  for (const code of codes) await page.keyDown(code, { modifiers });
+  await sleep(1500);
+  const first = await readPlayer(page);
+  await sleep(1500);
+  const second = await readPlayer(page);
+  for (const code of [...codes].reverse()) await page.keyUp(code, { modifiers });
+  await sleep(1300);
+  const move = horizontalMove(first, second);
+  return { speed: move.distance / move.seconds, directionErrorDegrees: Math.abs(wrapDegrees(move.directionDegrees - second.rigYawDegrees)) };
 }
 
 async function ensurePointerLocked(page, centre) {
@@ -302,7 +343,134 @@ try {
       summariseBlocks(7, outcomes, zoomBaseline, await readViewState(page), expectedDevicePixelRatio);
     }
 
-    for (const number of [8, 9, 10, 11, 12, 13, 14]) if (shouldRun(number)) record(number, false, `not written yet: this check arrives with phase ${CHECK_PHASES[number]}`);
+    let plainWalkSpeed = null;
+    if (shouldRun(8)) {
+      const problems = [];
+      const walk = await steadySpeed(page, ['KeyW']);
+      plainWalkSpeed = walk.speed;
+      if (walk.speed < 0.8 || walk.speed > 1.25) problems.push(`holding W walks at ${walk.speed.toFixed(3)} m/s (expected 0.8-1.25)`);
+      if (walk.directionErrorDegrees > 20) problems.push(`W walks ${walk.directionErrorDegrees.toFixed(1)} degrees away from the camera's forward direction`);
+      const arrow = await steadySpeed(page, ['ArrowUp']);
+      if (Math.abs(arrow.speed - walk.speed) > 0.05 || arrow.directionErrorDegrees > 20) problems.push(`ArrowUp walks at ${arrow.speed.toFixed(3)} m/s, ${arrow.directionErrorDegrees.toFixed(1)} degrees off forward (W: ${walk.speed.toFixed(3)} m/s)`);
+      const sideResults = [];
+      for (const [code, offsetDegrees] of [['KeyS', 180], ['KeyA', -90], ['KeyD', 90], ['ArrowLeft', -90]]) {
+        await page.keyDown(code);
+        await sleep(1700);
+        const start = await readPlayer(page);
+        await sleep(900);
+        const end = await readPlayer(page);
+        await page.keyUp(code);
+        await sleep(1300);
+        const move = horizontalMove(start, end);
+        const errorDegrees = Math.abs(wrapDegrees(move.directionDegrees - (end.rigYawDegrees + offsetDegrees)));
+        sideResults.push(`${code} ${move.distance.toFixed(2)} m at ${errorDegrees.toFixed(1)} degrees off`);
+        if (move.distance < 0.15 || errorDegrees > 35) problems.push(`${code} moved ${move.distance.toFixed(3)} m, ${errorDegrees.toFixed(1)} degrees away from the camera-relative direction`);
+      }
+      record(8, problems.length === 0, problems.length ? problems.join('; ') : `W ${walk.speed.toFixed(3)} m/s, ${walk.directionErrorDegrees.toFixed(1)} degrees off forward; ArrowUp ${arrow.speed.toFixed(3)} m/s; over the last 0.9 s of each 2.6 s hold: ${sideResults.join(', ')}`);
+    }
+
+    if (shouldRun(9)) {
+      const problems = [];
+      const baseline = plainWalkSpeed ?? (await steadySpeed(page, ['KeyW'])).speed;
+      const shift = await steadySpeed(page, ['ShiftLeft', 'KeyW'], ['Shift']);
+      const ratio = shift.speed / baseline;
+      if (ratio < 1.2 || ratio > 1.4) problems.push(`Shift+W ${shift.speed.toFixed(3)} m/s is ${ratio.toFixed(3)} times plain W ${baseline.toFixed(3)} m/s (expected 1.2-1.4)`);
+      record(9, problems.length === 0, problems.length ? problems.join('; ') : `Shift+W ${shift.speed.toFixed(3)} m/s against W ${baseline.toFixed(3)} m/s: ratio ${ratio.toFixed(3)}`);
+    }
+
+    if (shouldRun(10)) {
+      const problems = [];
+      const states = [await readPlayer(page)];
+      for (let press = 0; press < 3; press++) {
+        await page.keyPress('KeyC', { holdMs: 40, afterMs: 40 });
+        await sleep(1100);
+        states.push(await readPlayer(page));
+      }
+      const presets = states.map((state) => state.preset);
+      if (presets.join(',') !== '0,1,2,0') problems.push(`presets went ${presets.join(' -> ')} (expected 0 -> 1 -> 2 -> 0)`);
+      const distances = states.map((state) => state.distance);
+      if (!(distances[0] > distances[1] && distances[1] > distances[2])) problems.push(`camera distances ${distances.slice(0, 3).map((value) => value.toFixed(3)).join(' -> ')} do not strictly decrease`);
+      const rims = states.map((state) => state.helmetRimVisible);
+      if (rims.join(',') !== 'false,false,true,false') problems.push(`helmet rim visible ${rims.join(' -> ')} (expected only in preset 2)`);
+      record(10, problems.length === 0, problems.length ? problems.join('; ') : `presets ${presets.join(' -> ')}, distances ${distances.map((value) => value.toFixed(2)).join(' -> ')} m, helmet rim only in first person`);
+    }
+
+    let orbitDetail = null;
+    if (shouldRun(11)) {
+      const problems = [];
+      if (!(await ensurePointerLocked(page, centre))) {
+        problems.push('could not lock the pointer');
+      } else {
+        let previous = await readPlayer(page);
+        let totalYaw = 0;
+        let firstStep = null;
+        for (let move = 0; move < 14 && totalYaw < 380; move++) {
+          await page.mouseMoveBy(600, 0, { steps: 6 });
+          await sleep(150);
+          const current = await readPlayer(page);
+          const step = wrapDegrees(current.rigYawDegrees - previous.rigYawDegrees);
+          if (firstStep === null) firstStep = step;
+          totalYaw += step;
+          previous = current;
+        }
+        if (!(firstStep > 0)) problems.push(`moving the mouse right turned the camera by ${firstStep} degrees (expected a positive yaw turn to the right)`);
+        if (totalYaw < 360) problems.push(`yaw only turned ${totalYaw.toFixed(1)} degrees in total`);
+        await page.mouseMoveBy(0, -5000, { steps: 10 });
+        await sleep(200);
+        const up = await readPlayer(page);
+        await page.mouseMoveBy(0, 5000, { steps: 10 });
+        await sleep(200);
+        const down = await readPlayer(page);
+        if (Math.abs(up.rigPitchDegrees - 60) > ANGLE_TOLERANCE_DEGREES) problems.push(`pitch saturated at ${up.rigPitchDegrees.toFixed(2)} degrees looking up (expected +60)`);
+        if (Math.abs(down.rigPitchDegrees + 30) > ANGLE_TOLERANCE_DEGREES) problems.push(`pitch saturated at ${down.rigPitchDegrees.toFixed(2)} degrees looking down (expected -30)`);
+        await page.mouseMoveBy(0, -Math.round(((32.7 * Math.PI) / 180) / 0.0016), { steps: 4 });
+        await sleep(200);
+        orbitDetail = `yaw turned ${totalYaw.toFixed(1)} degrees without clamping (first step ${firstStep.toFixed(1)}), pitch limits ${up.rigPitchDegrees.toFixed(2)} / ${down.rigPitchDegrees.toFixed(2)} degrees`;
+      }
+      record(11, problems.length === 0, problems.length ? problems.join('; ') : orbitDetail);
+    }
+
+    if (shouldRun(12)) {
+      const problems = [];
+      if (!(await ensurePointerLocked(page, centre))) {
+        problems.push('could not lock the pointer');
+      } else {
+        const before = await readPlayer(page);
+        const turnDegrees = wrapDegrees(before.headingDegrees + 120 - before.rigYawDegrees);
+        await page.mouseMoveBy(Math.round(((turnDegrees * Math.PI) / 180) / 0.0018), 0, { steps: 6 });
+        await sleep(300);
+        const offset = await readPlayer(page);
+        await page.keyDown('KeyW');
+        await sleep(3000);
+        const after = await readPlayer(page);
+        await page.keyUp('KeyW');
+        await sleep(1300);
+        const startError = Math.abs(wrapDegrees(offset.rigYawDegrees - offset.headingDegrees));
+        const endError = Math.abs(wrapDegrees(after.rigYawDegrees - after.headingDegrees));
+        if (startError < 100) problems.push(`the camera was only ${startError.toFixed(1)} degrees off the heading before walking`);
+        if (endError >= 20) problems.push(`after 3 s of W the camera is ${endError.toFixed(1)} degrees off the heading (limit 20)`);
+        if (!problems.length) record(12, true, `camera ${startError.toFixed(1)} degrees off the heading before walking, ${endError.toFixed(1)} degrees after 3 s of W`);
+      }
+      if (problems.length) record(12, false, problems.join('; '));
+    }
+
+    if (shouldRun(13)) {
+      const problems = [];
+      const before = await readPlayer(page);
+      for (const code of ['Space', 'KeyE', 'KeyF', 'KeyQ', 'ControlLeft', 'KeyR', 'KeyV']) await page.keyPress(code, { holdMs: 60, afterMs: 60 });
+      await page.click(centre.x, centre.y, { button: 'right' });
+      await sleep(600);
+      const after = await readPlayer(page);
+      const moved = horizontalMove(before, after).distance;
+      if (moved > 0.01) problems.push(`the astronaut moved ${moved.toFixed(3)} m`);
+      if (Math.abs(wrapDegrees(after.headingDegrees - before.headingDegrees)) > 1) problems.push(`the heading changed by ${wrapDegrees(after.headingDegrees - before.headingDegrees).toFixed(2)} degrees`);
+      if (after.preset !== before.preset) problems.push(`the preset changed ${before.preset} -> ${after.preset}`);
+      if (Math.abs(after.distance - before.distance) > DISTANCE_TOLERANCE_METRES) problems.push(`the camera distance changed ${before.distance} -> ${after.distance}`);
+      if (after.mode !== before.mode) problems.push(`the camera mode changed ${before.mode} -> ${after.mode}`);
+      record(13, problems.length === 0, problems.length ? problems.join('; ') : 'Space, E, F, Q, R, V, Ctrl and a right-click left the astronaut and the camera unchanged');
+    }
+
+    for (const number of [14]) if (shouldRun(number)) record(number, false, `not written yet: this check arrives with phase ${CHECK_PHASES[number]}`);
 
     if (shouldRun(15)) {
       const problems = [];

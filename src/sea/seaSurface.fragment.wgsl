@@ -42,6 +42,7 @@ varying vLagrangian: vec2f;
 #include<aerialPerspectiveApply>
 #include<cloudDeckLighting>
 #include<seabed>
+#include<astronautProxies>
 
 const GARGANTUA_PATCH_TEXEL_RADIANS: f32 = 0.00075;
 const CLOUD_DECK_TEXEL_RADIANS: f32 = 0.00153;
@@ -147,12 +148,27 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let towardLightInWater = normalize(vec3f(lightDirection.x * refractionIndexInverse, lightCosineInWater, lightDirection.z * refractionIndexInverse));
     let reliefLighting = max(dot(bedNormal, towardLightInWater), 0.0) / towardLightInWater.y;
     let lightPath = waterDepth / lightCosineInWater;
-    let bedIrradiance = directIrradiance * (1.0 - fresnelWater(max(lightDirection.y, 0.0))) * exp(-extinction * lightPath) * reliefLighting + skyIrradiance * 0.94 * exp(-extinction * waterDepth * 1.6) * bedNormal.y;
-    let bedRadiance = albedo / ATMOSPHERE_PI * bedIrradiance;
-    let viewTransmittance = exp(-extinction * pathDown);
+    let penumbraPerMetre = tan(frame.keyLightDirectionAndAngularRadius.w);
+    let bedPoint = vec3f(bedPosition.x, world.y - waterDepth, bedPosition.y);
+    let bedShadow = astronautShadowVisibility(bedPoint, towardLightInWater, lightPath, lightDirection, penumbraPerMetre);
+    let transmittedDirect = directIrradiance * (1.0 - fresnelWater(max(lightDirection.y, 0.0)));
+    let bedIrradiance = transmittedDirect * exp(-extinction * lightPath) * reliefLighting * bedShadow + skyIrradiance * 0.94 * exp(-extinction * waterDepth * 1.6) * bedNormal.y;
+    var targetRadiance = albedo / ATMOSPHERE_PI * bedIrradiance;
+    var viewPath = pathDown;
+    let submergedHit = astronautSubmergedHit(world, refracted, pathDown);
+    if (submergedHit.x > 0.0) {
+        viewPath = submergedHit.x;
+        let hitPoint = world + refracted * submergedHit.x;
+        let suitNormal = astronautCapsuleNormal(hitPoint, u32(submergedHit.y + 0.5));
+        let depthBelowSurface = max(world.y - hitPoint.y, 0.0);
+        let suitLighting = max(dot(suitNormal, towardLightInWater), 0.0) / towardLightInWater.y;
+        let suitIrradiance = transmittedDirect * exp(-extinction * depthBelowSurface / lightCosineInWater) * suitLighting + skyIrradiance * 0.94 * exp(-extinction * depthBelowSurface * 1.6) * (0.5 + 0.5 * suitNormal.y);
+        targetRadiance = astronautProxyAlbedo(submergedHit.z) / ATMOSPHERE_PI * suitIrradiance;
+    }
+    let viewTransmittance = exp(-extinction * viewPath);
     let inWaterLight = (skyIrradiance + directIrradiance * 0.6) / ATMOSPHERE_PI;
     let scatteredInWater = seaSurface.waterScatteringColourAndDepth.xyz * inWaterLight * (vec3f(1.0) - viewTransmittance) * (scattering / max(extinction, vec3f(1e-4)));
-    let body = (bedRadiance * viewTransmittance + scatteredInWater) * 0.563;
+    let body = (targetRadiance * viewTransmittance + scatteredInWater) * 0.563;
     var radiance = body * (1.0 - fresnel) + reflection * fresnel;
     let foamRadiance = (skyIrradiance + directIrradiance) * (0.75 / ATMOSPHERE_PI);
     radiance = mix(radiance, foamRadiance, clamp(ripple.z, 0.0, 1.0) * 0.7);

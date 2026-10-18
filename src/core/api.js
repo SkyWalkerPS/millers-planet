@@ -28,9 +28,13 @@ export function installPageApi() {
             requireApplication().testScene.heavyPatternIterations = iterations;
         },
         clearGpuErrors: () => requireApplication().gpuErrors.clear(),
-        setAstronautPosition: () => {
-            throw new Error("setAstronautPosition arrives with the astronaut in phase 5");
+        setAstronautPosition: ({ x = 0, z = 0, yawDegrees = 0, cameraYawDegrees = yawDegrees } = {}) => {
+            const app = requireApplication();
+            app.placeAstronaut(x, z, (yawDegrees * Math.PI) / 180, (cameraYawDegrees * Math.PI) / 180);
+            return app.stats().astronaut;
         },
+        enterPlayerMode: () => requireApplication().enterPlayerMode(),
+        runFootDriftWalk: (options) => requireApplication().runFootDriftWalk(options),
         requestSkyUpdate: () => {
             requireApplication().gargantuaFirstFillPending = true;
         },
@@ -79,6 +83,7 @@ export function installPageApi() {
         },
         setViewPreset(presetIndex) {
             const app = requireApplication();
+            app.cameraRig.setPreset(presetIndex);
             app.viewPreset = presetIndex;
             return presetIndex;
         },
@@ -88,8 +93,8 @@ export function installPageApi() {
         setShipState() {
             throw new Error("setShipState arrives with the ship in phase 6");
         },
-        injectInput() {
-            throw new Error("injectInput arrives with the astronaut in phase 5");
+        injectInput(options = {}) {
+            return requireApplication().injectInput(options);
         },
         benchmark(options = {}) {
             return requireApplication().benchmark(options);

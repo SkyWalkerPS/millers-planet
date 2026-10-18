@@ -2,26 +2,10 @@ import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage";
 import { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer";
 import { buildClipmapMesh, clipmapBaseSpacingMetres, clipmapQuadsPerSide } from "./clipmapMesh.js";
+import { defaultSeaSurfaceSettings } from "./seaSurfaceSettings.js";
 
-export const defaultSeaSurfaceSettings = {
-    displacementFadeStartMetres: 30,
-    displacementFadeEndMetres: 60,
-    waterLevelMetres: 0,
-    planetRadiusMetres: 6360000,
-    unresolvedSlopeVariance: 0.0005,
-    reflectionSpreadBiasRadians: 0.004,
-    refractiveIndex: 1.333,
-    fresnelNormalSmoothing: 0.45,
-    absorptionPerMetre: [0.3, 0.05, 0.004],
-    scatteringPerMetre: 0.12,
-    scatteringColour: [0.42, 0.6, 0.55],
-    seabedDepthVariationMetres: 0.05,
-    seabedFeatureScalePerMetre: 0.08,
-    seabedDarkAlbedo: 0.08,
-    seabedLightAlbedo: 0.24,
-    seabedRippleMarkAmplitudeMetres: 0.006,
-    seabedRippleMarkWavelengthMetres: 0.09,
-};
+export { defaultSeaSurfaceSettings };
+
 
 export class SeaSurface {
     constructor({ scene, frameUniforms, atmosphere, simulation, rippleField, settings = {} }) {
@@ -41,10 +25,14 @@ export class SeaSurface {
             "seabedShape",
             "rippleWindowCentreHalfTexel",
             "seabedRippleMarks",
+            "astronautBoundsAndEnabled",
         ]) {
             this.parameters.addUniform(fieldName, 4);
         }
+        this.parameters.addUniform("astronautCapsules", 4, 24);
         this.parameters.create();
+        this.astronautCapsuleData = new Float32Array(96);
+        this.astronautBounds = new Float32Array(4);
         this.material = new ShaderMaterial("seaSurface", scene, { vertex: "seaSurface", fragment: "seaSurface" }, {
             attributes: ["position"],
             uniforms: [],
@@ -86,6 +74,8 @@ export class SeaSurface {
         const [waveTravelX, waveTravelZ] = this.simulation.settings.windTravelDirection;
         const waveTravelLength = Math.hypot(waveTravelX, waveTravelZ) || 1;
         parameters.updateFloat4("seabedRippleMarks", settings.seabedRippleMarkAmplitudeMetres, settings.seabedRippleMarkWavelengthMetres, waveTravelX / waveTravelLength, waveTravelZ / waveTravelLength);
+        parameters.updateFloat4("astronautBoundsAndEnabled", this.astronautBounds[0], this.astronautBounds[1], this.astronautBounds[2], this.astronautBounds[3]);
+        parameters.updateFloatArray("astronautCapsules", this.astronautCapsuleData);
         parameters.update();
     }
 
