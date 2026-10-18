@@ -28,8 +28,8 @@ fn main(@builtin(global_invocation_id) invocation: vec3u) {
     let ground = groundRadius(parameters);
     let top = topRadius(parameters);
     let ndc = (vec2f(invocation.xy) + 0.5) / f32(AERIAL_PERSPECTIVE_SIZE) * 2.0 - 1.0;
-    let nearPoint = frame.inverseViewProjection * vec4f(ndc, 1.0, 1.0);
-    let direction = normalize(nearPoint.xyz / nearPoint.w - frame.cameraPositionAndTime.xyz);
+    let pointAtInfinity = frame.inverseViewProjection * vec4f(ndc, 0.0, 1.0);
+    let direction = normalize(pointAtInfinity.xyz);
     let origin = vec3f(0.0, ground + max(parameters.lightDirectionAndCameraAltitude.w, 0.001), 0.0);
     let lightDirection = parameters.lightDirectionAndCameraAltitude.xyz;
     let scatteringCosine = dot(direction, lightDirection);

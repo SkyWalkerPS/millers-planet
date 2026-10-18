@@ -8,11 +8,13 @@ export { defaultSeaSurfaceSettings };
 
 
 export class SeaSurface {
-    constructor({ scene, frameUniforms, atmosphere, simulation, rippleField, settings = {} }) {
+    constructor({ scene, frameUniforms, atmosphere, simulation, rippleField, sceneProxies, settings = {} }) {
         this.settings = { ...defaultSeaSurfaceSettings, ...settings };
         this.simulation = simulation;
         this.rippleField = rippleField;
         this.centre = [0, 0];
+        this.worldOriginX = 0;
+        this.worldOriginZ = 0;
         this.parameters = new UniformBuffer(scene.getEngine(), undefined, false, "seaSurfaceParameters");
         for (const fieldName of [
             "clipmapCentreAndSpacing",
@@ -25,14 +27,13 @@ export class SeaSurface {
             "seabedShape",
             "rippleWindowCentreHalfTexel",
             "seabedRippleMarks",
-            "astronautBoundsAndEnabled",
+            "worldOriginAndUnused",
+            "cascadeOriginUvOffsetsFirstSecond",
+            "cascadeOriginUvOffsetsThird",
         ]) {
             this.parameters.addUniform(fieldName, 4);
         }
-        this.parameters.addUniform("astronautCapsules", 4, 24);
         this.parameters.create();
-        this.astronautCapsuleData = new Float32Array(96);
-        this.astronautBounds = new Float32Array(4);
         this.material = new ShaderMaterial("seaSurface", scene, { vertex: "seaSurface", fragment: "seaSurface" }, {
             attributes: ["position"],
             uniforms: [],
@@ -40,6 +41,7 @@ export class SeaSurface {
         });
         this.material.setUniformBuffer("frame", frameUniforms.buffer);
         this.material.setUniformBuffer("seaSurface", this.parameters);
+        this.material.setUniformBuffer("sceneProxies", sceneProxies.buffer);
         atmosphere.bindSkyResources(this.material);
         this.material.setTexture("displacementTexture", simulation.displacementTexture);
         this.material.setTexture("derivativeTexture", simulation.derivativeTexture);
@@ -50,6 +52,11 @@ export class SeaSurface {
         this.mesh.material = this.material;
         this.mesh.renderingGroupId = 0;
         this.writeParameters();
+    }
+
+    setWorldOrigin(x, z) {
+        this.worldOriginX = x;
+        this.worldOriginZ = z;
     }
 
     setCentre(x, z) {
@@ -73,9 +80,11 @@ export class SeaSurface {
         parameters.updateFloat4("rippleWindowCentreHalfTexel", ripples.windowCentre[0], ripples.windowCentre[1], ripples.halfExtentMetres, ripples.settings.texelMetres);
         const [waveTravelX, waveTravelZ] = this.simulation.settings.windTravelDirection;
         const waveTravelLength = Math.hypot(waveTravelX, waveTravelZ) || 1;
+        const uvOffsets = sizes.map((size) => [((this.worldOriginX % size) + size) % size / size, ((this.worldOriginZ % size) + size) % size / size]);
+        parameters.updateFloat4("worldOriginAndUnused", this.worldOriginX, this.worldOriginZ, 0, 0);
+        parameters.updateFloat4("cascadeOriginUvOffsetsFirstSecond", uvOffsets[0][0], uvOffsets[0][1], uvOffsets[1][0], uvOffsets[1][1]);
+        parameters.updateFloat4("cascadeOriginUvOffsetsThird", uvOffsets[2][0], uvOffsets[2][1], 0, 0);
         parameters.updateFloat4("seabedRippleMarks", settings.seabedRippleMarkAmplitudeMetres, settings.seabedRippleMarkWavelengthMetres, waveTravelX / waveTravelLength, waveTravelZ / waveTravelLength);
-        parameters.updateFloat4("astronautBoundsAndEnabled", this.astronautBounds[0], this.astronautBounds[1], this.astronautBounds[2], this.astronautBounds[3]);
-        parameters.updateFloatArray("astronautCapsules", this.astronautCapsuleData);
         parameters.update();
     }
 

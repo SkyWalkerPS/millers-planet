@@ -52,7 +52,7 @@ function createSkinnedMesh(name, scene, geometry, material) {
 }
 
 export class SuitRenderer {
-    constructor({ scene, engine, frameUniforms, atmosphere, look = {} }) {
+    constructor({ scene, engine, frameUniforms, atmosphere, sceneProxies, look = {} }) {
         this.look = { ...defaultSuitLook, ...look };
         this.boneData = new Float32Array(boneTextureWidth * boneTextureRows * 4);
         this.boneTexture = RawTexture.CreateRGBATexture(this.boneData, boneTextureWidth, boneTextureRows, scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
@@ -72,6 +72,7 @@ export class SuitRenderer {
         for (const material of [this.suitMaterial, this.visorMaterial]) {
             material.setUniformBuffer("frame", frameUniforms.buffer);
             material.setUniformBuffer("suitMaterial", this.parameters);
+            material.setUniformBuffer("sceneProxies", sceneProxies.buffer);
             material.setTexture("suitBoneTexture", this.boneTexture);
             atmosphere.bindSkyResources(material);
             material.backFaceCulling = false;
@@ -100,6 +101,14 @@ export class SuitRenderer {
 
     discardPreviousSkin() {
         this.hasPreviousSkin = false;
+    }
+
+    shiftOrigin(deltaX, deltaZ) {
+        const translationRowOffset = 3 * boneTextureWidth * 4;
+        for (let bone = 0; bone < BONE_COUNT; bone++) {
+            this.boneData[translationRowOffset + bone * 4] -= deltaX;
+            this.boneData[translationRowOffset + bone * 4 + 2] -= deltaZ;
+        }
     }
 
     writeSkin(skin) {

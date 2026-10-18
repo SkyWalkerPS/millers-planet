@@ -27,19 +27,23 @@ import { SeaSimulation } from "../sea/seaSimulation.js";
 import { SeaSurface } from "../sea/seaSurface.js";
 import { RippleField } from "../sea/rippleField.js";
 import { WaveReservation } from "../wave/waveReservation.js";
+import { SceneProxies } from "../world/sceneProxies.js";
+import { Lander, SHIP_STATE_INTACT, relocationForWave, shipStateNames } from "../ship/lander.js";
 import { createSeabedHeightFunction } from "../sea/seabedHeight.js";
-import { SuitController } from "../character/suitController.js";
+import { SuitController, bodySphereHeightsMetres, bodySphereRadiusMetres, closestPointOnBox } from "../character/suitController.js";
 import { FOOT_EVENT_HEEL_STRIKE, SuitFigure } from "../character/suitFigure.js";
 import { SuitRenderer } from "../character/suitRender.js";
 import { BONE_HAND_LEFT, BONE_HAND_RIGHT, BONE_HELMET, BONE_NECK, BONE_PELVIS, BONE_UPPER_ARM_LEFT, BONE_UPPER_ARM_RIGHT } from "../character/suitSkeleton.js";
 import { CameraRig, cameraPresets } from "../camera/cameraRig.js";
 import { scriptedInputAt, scriptedWalk } from "../character/scriptedWalk.js";
+import { ClockPanel, earthSecondsPerMillerSecond, formatEarthClock, formatMillerClock } from "../hud/clocks.js";
 import { shotDefinitions, orbitCameraPose } from "../debug/shots.js";
-import { directionFromAzimuthElevation, gargantuaAzimuthRadians, gargantuaElevationRadians } from "../world/skyLayout.js";
+import { directionFromAzimuthElevation, gargantuaAzimuthRadians, gargantuaElevationRadians, openingYawRadians } from "../world/skyLayout.js";
 
 const degreesToRadians = Math.PI / 180;
-const timeDilationFactor = 61362;
 const cameraModeCodes = { player: 0, scripted: 1, shot: 2, debug: 3 };
+export const worldOriginShiftDistanceMetres = 1000;
+export const worldOriginShiftStepMetres = 1024;
 
 const passesFullyOverwrittenEachFrame = new Set(["historyA", "historyB", "shaftMask", "shaftMarch", "composite"]);
 for (let level = 0; level < 8; level++) {
@@ -58,6 +62,8 @@ export class MillersPlanetApp {
         const created = await createEngine(canvas);
         const app = new MillersPlanetApp(canvas, parameters, created);
         await app.warmUp();
+        app.clockPanel = new ClockPanel(document.body);
+        app.applyHudVisibility();
         app.startLiveLoop();
         return app;
     }
@@ -144,7 +150,8 @@ export class MillersPlanetApp {
         this.skyDome = new SkyDome({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere });
         this.seaSimulation = new SeaSimulation({ engine, scene: this.scene, profiler: this.profiler });
         this.rippleField = new RippleField({ engine, scene: this.scene, profiler: this.profiler, seaSettings: this.seaSimulation.settings });
-        this.seaSurface = new SeaSurface({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, simulation: this.seaSimulation, rippleField: this.rippleField });
+        this.sceneProxies = new SceneProxies(engine);
+        this.seaSurface = new SeaSurface({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, simulation: this.seaSimulation, rippleField: this.rippleField, sceneProxies: this.sceneProxies });
         this.scene.onBeforeRenderObservable.add(() => {
             this.dispatchGargantuaWork();
             this.atmosphere.dispatchFrame();
@@ -154,15 +161,19 @@ export class MillersPlanetApp {
             }
         });
         this.rippleCentre = [0, 0];
-        this.seabedHeightAt = createSeabedHeightFunction({
+        this.worldOriginX = 0;
+        this.worldOriginZ = 0;
+        this.worldOriginShiftCount = 0;
+        const absoluteSeabedHeightAt = createSeabedHeightFunction({
             meanDepthMetres: this.seaSimulation.settings.meanDepthMetres,
             depthVariationMetres: this.seaSurface.settings.seabedDepthVariationMetres,
             featureScalePerMetre: this.seaSurface.settings.seabedFeatureScalePerMetre,
             waterLevelMetres: this.seaSurface.settings.waterLevelMetres,
         });
+        this.seabedHeightAt = (x, z) => absoluteSeabedHeightAt(x + this.worldOriginX, z + this.worldOriginZ);
         this.suitController = new SuitController({ seabedHeightAt: this.seabedHeightAt, waterLevelAt: () => this.seaSurface.settings.waterLevelMetres });
         this.suitFigure = new SuitFigure({ seabedHeightAt: this.seabedHeightAt });
-        this.suitRenderer = new SuitRenderer({ scene: this.scene, engine, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere });
+        this.suitRenderer = new SuitRenderer({ scene: this.scene, engine, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, sceneProxies: this.sceneProxies });
         this.cameraRig = new CameraRig();
         this.injectedInput = { keys: new Set(), mouseDeltaPerSecondX: 0, mouseDeltaPerSecondY: 0, remainingSeconds: 0, pressedKeys: [] };
         this.scriptedMoveOverride = null;
@@ -174,7 +185,11 @@ export class MillersPlanetApp {
         this.footStampPoolIndex = 0;
         this.wakeStamps = [0, 1].map(() => ({ x: 0, z: 0, radius: 0.06, elongation: 1, forwardX: 0, forwardZ: 1, heightChange: 0, foam: 0, ringWeight: 0.3 }));
         this.lastWakeCrossings = new Float64Array(4).fill(Number.NaN);
-        this.placeAstronaut(0, 0, gargantuaAzimuthRadians);
+        this.lander = new Lander({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, sceneProxies: this.sceneProxies, waterLevelMetres: this.seaSurface.settings.waterLevelMetres });
+        this.suitController.obstacleBoxes = () => (this.systemsEnabled?.ship && this.lander.state !== 4 ? this.lander.worldBoxes : null);
+        this.cameraRig.obstacleBoxes = this.suitController.obstacleBoxes;
+        this.placeOpeningShip();
+        this.placeAstronaut(0, 0, openingYawRadians);
         this.waveReservation = new WaveReservation({
             scene: this.scene,
             frameUniforms: this.frameUniforms,
@@ -218,6 +233,7 @@ export class MillersPlanetApp {
             sea: true,
             waveReservation: false,
             astronaut: true,
+            ship: true,
         };
         for (const name of parameters.disabledSystems) {
             this.setSystemEnabled(name, false);
@@ -257,7 +273,7 @@ export class MillersPlanetApp {
     }
 
     materialsSamplingGargantua() {
-        return [this.skyDome.material, this.seaSurface.material, ...this.waveReservation.materials, ...this.suitRenderer.materials];
+        return [this.skyDome.material, this.seaSurface.material, ...this.waveReservation.materials, ...this.suitRenderer.materials, this.lander.material];
     }
 
     async measureAndApplyKeyLight() {
@@ -808,6 +824,8 @@ export class MillersPlanetApp {
             this.waveReservation.setEnabled(isOn);
         } else if (name === "astronaut") {
             this.suitRenderer.setVisible(isOn);
+        } else if (name === "ship") {
+            this.lander.setVisible(isOn);
         }
     }
 
@@ -816,6 +834,7 @@ export class MillersPlanetApp {
         if (!definition) {
             throw new Error(`Unknown shot ${name}`);
         }
+        this.resetWorldOrigin();
         if (definition.pose) {
             const pose = definition.pose();
             this.cameraPose.position[0] = pose.position[0];
@@ -846,6 +865,12 @@ export class MillersPlanetApp {
             this.setSystemEnabled(sceneSystemName, !hiddenSystems.includes(sceneSystemName));
         }
         this.setSystemEnabled("astronaut", Boolean(definition.player));
+        this.setSystemEnabled("ship", Boolean(definition.ship));
+        if (definition.ship === "opening") {
+            this.placeOpeningShip();
+        } else if (definition.ship) {
+            this.lander.place(definition.ship.x, definition.ship.z, definition.ship.yawRadians, definition.ship.state);
+        }
         let crop = {};
         if (definition.player) {
             crop = this.preparePlayerShot(definition);
@@ -859,7 +884,14 @@ export class MillersPlanetApp {
             this.clock.freeze(definition.timeSeconds);
         }
         this.invalidateTemporalHistory();
+        this.applyHudVisibility();
         return { name, crop };
+    }
+
+    applyHudVisibility() {
+        const shot = this.currentShotName ? shotDefinitions[this.currentShotName] : null;
+        const visible = this.parameters.hudVisible && (!shot || Boolean(shot.showHud));
+        this.clockPanel?.setVisible(visible);
     }
 
     enterPlayerMode() {
@@ -870,13 +902,156 @@ export class MillersPlanetApp {
         this.setSystemEnabled("sea", true);
         this.setSystemEnabled("waveReservation", false);
         this.setSystemEnabled("astronaut", true);
+        this.setSystemEnabled("ship", true);
         this.depthOfFieldAllowed = true;
         this.postChain.settings.maximumBlurRadiusPixels = this.defaultMaximumBlurRadiusPixels;
         if (this.warmUpComplete) {
             this.clock.freeze(null);
         }
         this.applyRigToCameraPose();
+        this.applyHudVisibility();
         this.invalidateTemporalHistory();
+    }
+
+    placeOpeningShip() {
+        const bearing = openingYawRadians + (30 * Math.PI) / 180;
+        const distance = 20;
+        this.lander.place(Math.sin(bearing) * distance, Math.cos(bearing) * distance, bearing + (125 * Math.PI) / 180, SHIP_STATE_INTACT);
+    }
+
+    setShipState(state) {
+        this.lander.place(this.lander.positionX, this.lander.positionZ, this.lander.yawRadians, state);
+        return this.shipStats();
+    }
+
+    relocateShipForWave(waveIndex, impactX = this.suitController.positionX, impactZ = this.suitController.positionZ) {
+        const [travelX, travelZ] = this.seaSimulation.settings.windTravelDirection;
+        const relocation = relocationForWave(waveIndex, impactX, impactZ, travelX, travelZ);
+        this.lander.place(relocation.x, relocation.z, relocation.yawRadians, relocation.state);
+        return { ...relocation, impact: [impactX, impactZ] };
+    }
+
+    walkToShip({ waveIndex = 1, impactX = 0, impactZ = 0, stepSeconds = 1 / 60, reachMetres = 2.0, limitSeconds = 400 } = {}) {
+        const relocation = this.relocateShipForWave(waveIndex, impactX, impactZ);
+        const controller = this.suitController;
+        const figure = this.suitFigure;
+        const towardShip = Math.atan2(relocation.x - impactX, relocation.z - impactZ);
+        controller.teleport(impactX, impactZ, towardShip);
+        figure.teleport(controller);
+        const point = new Float64Array(3);
+        const distanceAtStart = controller.distanceTravelled;
+        let seconds = 0;
+        let nearestBoxDistance = Infinity;
+        while (seconds < limitSeconds) {
+            const inputYaw = Math.atan2(this.lander.positionX - controller.positionX, this.lander.positionZ - controller.positionZ);
+            controller.update(stepSeconds, 0, 1, false, inputYaw);
+            figure.update(stepSeconds, controller);
+            seconds += stepSeconds;
+            nearestBoxDistance = Infinity;
+            for (const box of this.lander.worldBoxes) {
+                const contact = closestPointOnBox(box, controller.positionX, controller.positionY + 1.0, controller.positionZ, point);
+                const distance = contact.inside ? 0 : Math.hypot(controller.positionX - point[0], controller.positionY + 1.0 - point[1], controller.positionZ - point[2]);
+                nearestBoxDistance = Math.min(nearestBoxDistance, distance);
+            }
+            if (nearestBoxDistance <= reachMetres) {
+                break;
+            }
+        }
+        const result = {
+            waveIndex,
+            relocationDistanceMetres: relocation.distanceMetres,
+            shipState: relocation.state,
+            secondsToReach: seconds,
+            reached: nearestBoxDistance <= reachMetres,
+            finalDistanceToHullMetres: nearestBoxDistance,
+            walkedMetres: controller.distanceTravelled - distanceAtStart,
+            averageSpeedMetresPerSecond: (controller.distanceTravelled - distanceAtStart) / seconds,
+        };
+        this.placeOpeningShip();
+        this.placeAstronaut(0, 0, openingYawRadians);
+        return result;
+    }
+
+    probeShipCollision({ states = [0, 1, 2, 3], approachCount = 8, startDistanceMetres = 16, seconds = 20, stepSeconds = 1 / 60 } = {}) {
+        const controller = this.suitController;
+        const figure = this.suitFigure;
+        const rig = this.cameraRig;
+        const waterLevel = this.seaSurface.settings.waterLevelMetres;
+        const point = new Float64Array(3);
+        const signedDistanceToBox = (box, x, y, z) => {
+            const contact = closestPointOnBox(box, x, y, z, point);
+            return contact.inside ? -contact.leastPenetration : Math.hypot(x - point[0], y - point[1], z - point[2]);
+        };
+        const results = [];
+        for (const state of states) {
+            this.lander.place(0, 0, 0.4, state);
+            const boxes = this.lander.worldBoxes;
+            const result = { state, stateName: shipStateNames[state], approaches: approachCount, deepestPenetrationMetres: 0, deepestPenetrationBox: null, framesOverTwoCentimetres: 0, closestCameraMetres: Infinity, closestCameraBox: null, framesInContact: 0, largestCameraStepMetres: 0, cameraJumpsOverHalfMetre: 0, simulatedSeconds: 0 };
+            for (let approach = 0; approach < approachCount; approach++) {
+                const bearing = (approach / approachCount) * 2 * Math.PI;
+                const towardShip = bearing + Math.PI;
+                this.placeAstronaut(Math.sin(bearing) * startDistanceMetres, Math.cos(bearing) * startDistanceMetres, towardShip);
+                let previousCameraX = rig.position[0];
+                let previousCameraY = rig.position[1];
+                let previousCameraZ = rig.position[2];
+                for (let step = 0; step * stepSeconds < seconds; step++) {
+                    const elapsed = step * stepSeconds;
+                    controller.update(stepSeconds, 0, 1, false, towardShip);
+                    figure.update(stepSeconds, controller);
+                    rig.update(stepSeconds, controller, figure, 10 * Math.sin(elapsed * 0.6), 4 * Math.sin(elapsed * 0.45), waterLevel, false);
+                    if (Math.hypot(rig.position[0] - previousCameraX, rig.position[1] - previousCameraY, rig.position[2] - previousCameraZ) > 0.5) {
+                        result.cameraJumpsOverHalfMetre++;
+                    }
+                    previousCameraX = rig.position[0];
+                    previousCameraY = rig.position[1];
+                    previousCameraZ = rig.position[2];
+                    result.simulatedSeconds += stepSeconds;
+                    let deepestThisFrame = -Infinity;
+                    for (const box of boxes) {
+                        for (const height of bodySphereHeightsMetres) {
+                            const penetration = bodySphereRadiusMetres - signedDistanceToBox(box, controller.positionX, controller.positionY + height, controller.positionZ);
+                            if (penetration > deepestThisFrame) {
+                                deepestThisFrame = penetration;
+                            }
+                            if (penetration > result.deepestPenetrationMetres) {
+                                result.deepestPenetrationMetres = penetration;
+                                result.deepestPenetrationBox = box.name;
+                            }
+                        }
+                        const cameraDistance = signedDistanceToBox(box, rig.position[0], rig.position[1], rig.position[2]);
+                        if (cameraDistance < result.closestCameraMetres) {
+                            result.closestCameraMetres = cameraDistance;
+                            result.closestCameraBox = box.name;
+                        }
+                    }
+                    if (deepestThisFrame > -0.01) {
+                        result.framesInContact++;
+                    }
+                    if (deepestThisFrame > 0.02) {
+                        result.framesOverTwoCentimetres++;
+                    }
+                }
+                result.largestCameraStepMetres = Math.max(result.largestCameraStepMetres, rig.largestFrameMoveMetres);
+            }
+            results.push(result);
+        }
+        this.placeOpeningShip();
+        this.placeAstronaut(0, 0, openingYawRadians);
+        return results;
+    }
+
+    shipStats() {
+        const lander = this.lander;
+        return {
+            state: lander.state,
+            stateName: shipStateNames[lander.state],
+            position: [lander.positionX, lander.positionZ],
+            yawDegrees: (lander.yawRadians * 180) / Math.PI,
+            visible: lander.visible && lander.state !== 4,
+            distanceFromAstronautMetres: lander.distanceTo(this.suitController.positionX, this.suitController.positionZ),
+            proxyBoxes: lander.worldBoxes.length,
+            triangles: lander.triangleCounts[lander.state],
+        };
     }
 
     placeAstronaut(x, z, yawRadians, cameraYawRadians = yawRadians, cameraPitchRadians = null) {
@@ -1098,6 +1273,7 @@ export class MillersPlanetApp {
         this.suitFigure.update(deltaSeconds, this.suitController);
         const forwardDominantInput = player.moveForward > 0.5 && Math.abs(player.moveRight) < 0.5;
         this.cameraRig.update(deltaSeconds, this.suitController, this.suitFigure, player.mouseX, player.mouseY, this.seaSurface.settings.waterLevelMetres, forwardDominantInput);
+        this.shiftWorldOriginIfFar();
         this.applyRigToCameraPose();
         this.collectWaterContacts((stamp) => this.rippleField.queueStamp(stamp));
     }
@@ -1126,9 +1302,8 @@ export class MillersPlanetApp {
     }
 
     writeAstronautProxies() {
-        const sea = this.seaSurface;
-        const data = sea.astronautCapsuleData;
-        const bounds = sea.astronautBounds;
+        const data = this.sceneProxies.astronautCapsuleData;
+        const bounds = this.sceneProxies.astronautBounds;
         if (!this.systemsEnabled.astronaut) {
             bounds[3] = 0;
             return;
@@ -1246,6 +1421,56 @@ export class MillersPlanetApp {
         }
     }
 
+    shiftWorldOriginIfFar() {
+        const controller = this.suitController;
+        if (Math.abs(controller.positionX) <= worldOriginShiftDistanceMetres && Math.abs(controller.positionZ) <= worldOriginShiftDistanceMetres) {
+            return;
+        }
+        this.shiftWorldOrigin(
+            Math.round(controller.positionX / worldOriginShiftStepMetres) * worldOriginShiftStepMetres,
+            Math.round(controller.positionZ / worldOriginShiftStepMetres) * worldOriginShiftStepMetres,
+        );
+    }
+
+    shiftWorldOrigin(deltaX, deltaZ) {
+        if (deltaX === 0 && deltaZ === 0) {
+            return;
+        }
+        this.worldOriginX += deltaX;
+        this.worldOriginZ += deltaZ;
+        this.worldOriginShiftCount++;
+        this.suitController.shiftOrigin(deltaX, deltaZ);
+        this.suitFigure.shiftOrigin(deltaX, deltaZ);
+        this.suitRenderer.shiftOrigin(deltaX, deltaZ);
+        this.cameraRig.shiftOrigin(deltaX, deltaZ);
+        this.cameraFrame.shiftOrigin(deltaX, deltaZ);
+        this.cameraPose.position[0] -= deltaX;
+        this.cameraPose.position[2] -= deltaZ;
+        if (this.cameraTransition) {
+            for (const position of [this.cameraTransition.fromPosition, this.cameraTransition.toPosition]) {
+                position[0] -= deltaX;
+                position[2] -= deltaZ;
+            }
+        }
+        for (let footIndex = 0; footIndex < 2; footIndex++) {
+            this.lastWakeCrossings[footIndex * 2] -= deltaX;
+            this.lastWakeCrossings[footIndex * 2 + 1] -= deltaZ;
+        }
+        this.rippleCentre[0] -= deltaX;
+        this.rippleCentre[1] -= deltaZ;
+        this.rippleField.shiftOrigin(deltaX, deltaZ);
+        this.lander.shiftOrigin(deltaX, deltaZ);
+        this.atmosphere.shiftOrigin(deltaX, deltaZ);
+        this.seaSurface.setWorldOrigin(this.worldOriginX, this.worldOriginZ);
+    }
+
+    resetWorldOrigin() {
+        this.atmosphere.shiftOrigin(-this.worldOriginX, -this.worldOriginZ);
+        this.worldOriginX = 0;
+        this.worldOriginZ = 0;
+        this.seaSurface.setWorldOrigin(0, 0);
+    }
+
     invalidateTemporalHistory() {
         this.cameraFrame.discardHistory();
         this.postChain.historyValid = false;
@@ -1357,6 +1582,7 @@ export class MillersPlanetApp {
             this.suitRenderer.writeSkin(this.suitFigure.skin);
         }
         this.writeAstronautProxies();
+        this.sceneProxies.write();
         this.rippleField.updateWindow(this.rippleCentre[0], this.rippleCentre[1]);
         this.seaSurface.setCentre(this.cameraFrame.position.x, this.cameraFrame.position.z);
         this.seaSurface.writeParameters();
@@ -1374,6 +1600,7 @@ export class MillersPlanetApp {
         this.scene.render();
         this.postChain.render(frameIndex);
         this.frameLog.recordSubmittedFrame(frameIndex, rafTimeMilliseconds, this.resolution.currentScale, this.beautyTargets.generation, this.wavePhaseCode, cameraModeCodes[this.cameraMode] ?? 3);
+        this.clockPanel?.update(this.clock.timeSeconds);
         engine.endFrame();
         this.cameraFrame.finishFrame();
         this.pipelinesCreatedLastFrame = this.pipelineCounters.renderPipelinesCreated + this.pipelineCounters.computePipelinesCreated - pipelinesBefore;
@@ -1525,7 +1752,7 @@ export class MillersPlanetApp {
 
     async warmUp() {
         this.testScene.lateMarkerWarmed.setEnabled(true);
-        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.waveReservation.meshes, ...this.suitRenderer.meshes]);
+        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.waveReservation.meshes, ...this.suitRenderer.meshes, ...this.lander.meshesForWarmUp]);
         this.postChain.settings.outputBlack = 1;
         this.renderFrame(performance.now(), 1 / 60);
         await this.device.queue.onSubmittedWorkDone();
@@ -1536,14 +1763,14 @@ export class MillersPlanetApp {
             await this.device.queue.onSubmittedWorkDone();
         }
         const systemsBeforeWarmUp = { ...this.systemsEnabled };
-        for (const lateSystem of ["sea", "waveReservation", "testGeometry", "astronaut"]) {
+        for (const lateSystem of ["sea", "waveReservation", "testGeometry", "astronaut", "ship"]) {
             this.setSystemEnabled(lateSystem, true);
         }
         for (let frameNumber = 0; frameNumber < 3; frameNumber++) {
             this.renderFrame(performance.now(), 1 / 60);
             await this.device.queue.onSubmittedWorkDone();
         }
-        for (const lateSystem of ["sea", "waveReservation", "testGeometry", "astronaut"]) {
+        for (const lateSystem of ["sea", "waveReservation", "testGeometry", "astronaut", "ship"]) {
             this.setSystemEnabled(lateSystem, systemsBeforeWarmUp[lateSystem]);
         }
         this.testScene.patternCompute.fastMode = true;
@@ -1560,8 +1787,8 @@ export class MillersPlanetApp {
 
     formatClocks() {
         const millerSeconds = this.clock.timeSeconds;
-        const earthSeconds = millerSeconds * timeDilationFactor;
-        return { millerSeconds, earthSeconds };
+        const earthSeconds = millerSeconds * earthSecondsPerMillerSecond;
+        return { millerSeconds, earthSeconds, millerText: formatMillerClock(millerSeconds), earthText: formatEarthClock(millerSeconds) };
     }
 
     stats() {
@@ -1624,10 +1851,11 @@ export class MillersPlanetApp {
                 impactPosition: null,
                 distanceMetres: null,
             },
-            ship: { state: 0, position: null, tiltDegrees: 0, visible: false },
+            ship: this.shipStats(),
             astronaut: {
                 visible: this.systemsEnabled.astronaut,
                 position: [this.suitController.positionX, this.suitController.positionY, this.suitController.positionZ],
+                absolutePosition: [this.suitController.positionX + this.worldOriginX, this.suitController.positionY, this.suitController.positionZ + this.worldOriginZ],
                 headingDegrees: (this.suitController.facingYaw * 180) / Math.PI,
                 horizontalSpeed: this.suitController.planarSpeed,
                 gaitMode: ["idle", "walking", "stopping"][this.suitFigure.gaitMode],
@@ -1670,7 +1898,7 @@ export class MillersPlanetApp {
                 fovDegrees: (cameraFrame.verticalFieldOfViewRadians * 180) / Math.PI,
                 position: [cameraFrame.position.x, cameraFrame.position.y, cameraFrame.position.z],
             },
-            clocks: { millerSeconds: clocks.millerSeconds, earthSeconds: clocks.earthSeconds, millerText: null, earthText: null },
+            clocks: { millerSeconds: clocks.millerSeconds, earthSeconds: clocks.earthSeconds, ratio: earthSecondsPerMillerSecond, millerText: clocks.millerText, earthText: clocks.earthText, panelVisible: Boolean(this.clockPanel && this.clockPanel.panel.style.display !== "none"), panelMillerText: this.clockPanel?.millerText ?? null, panelEarthText: this.clockPanel?.earthText ?? null },
             audio: { state: this.audioSystem.state, muffleCutoffHz: this.audioSystem.muffleCutoffHz },
             pointerLocked: this.input.pointerLocked,
             heldKeys: Array.from(this.input.heldKeyCodes),
@@ -1702,7 +1930,7 @@ export class MillersPlanetApp {
                 halfExtentMetres: this.rippleField.halfExtentMetres,
                 texelMetres: this.rippleField.settings.texelMetres,
             },
-            origin: { offset: [0, 0, 0], shifts: 0 },
+            origin: { offset: [this.worldOriginX, 0, this.worldOriginZ], shifts: this.worldOriginShiftCount, shiftDistanceMetres: worldOriginShiftDistanceMetres, shiftStepMetres: worldOriginShiftStepMetres },
             systems: { ...this.systemsEnabled },
         };
     }

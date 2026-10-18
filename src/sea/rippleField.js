@@ -89,6 +89,26 @@ export class RippleField {
         }
     }
 
+    shiftOrigin(deltaX, deltaZ) {
+        const texel = this.settings.texelMetres;
+        const texelShiftX = Math.round(deltaX / texel);
+        const texelShiftZ = Math.round(deltaZ / texel);
+        this.windowLow[0] -= texelShiftX;
+        this.windowLow[1] -= texelShiftZ;
+        this.previousWindowLow[0] -= texelShiftX;
+        this.previousWindowLow[1] -= texelShiftZ;
+        this.windowCentre[0] -= deltaX;
+        this.windowCentre[1] -= deltaZ;
+        for (const stamp of this.pendingStamps) {
+            stamp.x -= deltaX;
+            stamp.z -= deltaZ;
+        }
+        for (const delayed of this.pendingStampsNextStep) {
+            delayed.stamp.x -= deltaX;
+            delayed.stamp.z -= deltaZ;
+        }
+    }
+
     queueStampAfterSteps(stamp, steps) {
         this.pendingStampsNextStep.push({ stamp, remainingSteps: steps });
     }

@@ -243,10 +243,12 @@ function formatVerdictTable(analysis) {
   return formatTable(['metric', 'value', 'limit', 'result'], analysis.verdicts.map((verdict) => [verdict.metric, formatNumber(verdict.value, digitsForMetric(verdict.metric)), verdict.limit, verdict.pass ? 'PASS' : 'FAIL']), { rightAlignFrom: 1 });
 }
 
+const hudHidden = process.env.HUD === '0';
+
 async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumber, verbose }) {
   const gpuLoad = await checkGpuLoad();
   const otherChrome = await checkStrayHeadlessChrome();
-  const target = await openMillersPlanet({ server });
+  const target = await openMillersPlanet({ server, query: hudHidden ? { hud: '0' } : {} });
   try {
     const { page } = target;
     const { checks: appChecks } = await checkAppPage(page, { viewport: target.viewport });
@@ -361,7 +363,7 @@ if (isMainModule) {
   const runs = [];
   let refused = null;
   try {
-    console.log(`\nFlight "${flightName}" (${timeline.summary})`);
+    console.log(`\nFlight "${flightName}" (${timeline.summary})${hudHidden ? ', HUD hidden with ?hud=0' : ''}`);
     console.log(`${runCount} fresh run(s) of ${flightSeconds} s from ${server.description}, controller live, ${settleSeconds} s settle before each run`);
     for (let runNumber = 1; runNumber <= runCount; runNumber++) {
       const run = await flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumber, verbose });
@@ -389,7 +391,7 @@ if (isMainModule) {
       }
       if (run.gpuErrors.length) console.log(`  GPU errors: ${run.gpuErrors.slice(0, 3).join(' | ')}`);
       if (run.pageErrors.length) console.log(`  page errors:\n${run.pageErrors.map((line) => `    ${line}`).join('\n')}`);
-      const evidencePath = path.join(evidenceDirectory(), `${phase}-flight-run${runNumber}.json`);
+      const evidencePath = path.join(evidenceDirectory(), `${phase}-flight${hudHidden ? '-hud-off' : ''}-run${runNumber}.json`);
       mkdirSync(path.dirname(evidencePath), { recursive: true });
       writeFileSync(evidencePath, JSON.stringify({ tool: 'flight.mjs', flight: flightName, createdAt: new Date().toISOString(), passRule: FLIGHT_PASS_RULE, preflight: machine.checks, ...run }, null, 1));
       console.log(`  wrote ${evidencePath}`);

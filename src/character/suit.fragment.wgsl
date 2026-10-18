@@ -4,11 +4,13 @@
 #include<cloudDeckLayout>
 #include<aerialPerspectiveLayout>
 #include<suitMaterialParameters>
+#include<sceneProxyParameters>
 #include<proceduralNoise>
 
 var<uniform> frame: FrameUniforms;
 var<uniform> atmosphere: AtmosphereParameters;
 var<uniform> suitMaterial: SuitMaterialParameters;
+var<uniform> sceneProxies: SceneProxyParameters;
 var gargantuaCurrentPatch: texture_2d<f32>;
 var gargantuaCurrentPatchSampler: sampler;
 var gargantuaPreviousPatch: texture_2d<f32>;
@@ -34,6 +36,7 @@ varying vPreviousClip: vec4f;
 #include<aerialPerspectiveApply>
 #include<cloudDeckLighting>
 #include<suitLighting>
+#include<sceneProxyQueries>
 
 const SLOT_SUIT_FABRIC: u32 = 0u;
 const SLOT_ACCENT_FABRIC: u32 = 1u;
@@ -87,7 +90,8 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     if (dot(normal, view) < 0.0) {
         normal = -normal;
     }
-    let environment = suitLightEnvironment(world);
+    var environment = suitLightEnvironment(world);
+    environment.directIrradiance *= shipShadowVisibility(world, environment.lightDirection, tan(frame.keyLightDirectionAndAngularRadius.w));
     let lightDirection = environment.lightDirection;
     let normalDotLight = max(dot(normal, lightDirection), 0.0);
     let normalDotView = max(dot(normal, view), 1e-3);

@@ -48,6 +48,8 @@ export class CameraFrame {
         this.jitteredViewProjection = new Matrix();
         this.previousViewProjection = new Matrix();
         this.inverseViewProjection = new Matrix();
+        this.originShiftTranslation = new Matrix();
+        this.shiftedViewProjection = new Matrix();
         this.hasPreviousFrame = false;
         this.jitterPhaseIndex = 0;
         this.jitterNdcX = 0;
@@ -72,6 +74,16 @@ export class CameraFrame {
 
     discardHistory() {
         this.hasPreviousFrame = false;
+    }
+
+    shiftOrigin(deltaX, deltaZ) {
+        this.position.x -= deltaX;
+        this.position.z -= deltaZ;
+        this.previousPosition.x -= deltaX;
+        this.previousPosition.z -= deltaZ;
+        Matrix.TranslationToRef(deltaX, 0, deltaZ, this.originShiftTranslation);
+        this.originShiftTranslation.multiplyToRef(this.viewProjection, this.shiftedViewProjection);
+        this.viewProjection.copyFrom(this.shiftedViewProjection);
     }
 
     prepare(outputWidth, outputHeight, internalWidth, internalHeight) {

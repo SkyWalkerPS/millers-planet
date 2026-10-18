@@ -45,7 +45,7 @@ fn main(input: VertexInputs) -> FragmentInputs {
             let texelSize = seaSurface.cascadeSizes[cascade] / 256.0;
             let level = log2(max(placement.spacing / texelSize, 1.0)) + 0.5;
             if (level < 8.0) {
-                displacement += textureSampleLevel(displacementTexture, displacementTextureSampler, lagrangian * seaSurface.cascadeInverseSizes[cascade], cascade, level).xyz;
+                displacement += textureSampleLevel(displacementTexture, displacementTextureSampler, lagrangian * seaSurface.cascadeInverseSizes[cascade] + cascadeOriginUvOffset(cascade), cascade, level).xyz;
             }
         }
         displacement *= fade;

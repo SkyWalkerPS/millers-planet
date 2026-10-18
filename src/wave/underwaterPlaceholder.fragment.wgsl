@@ -27,8 +27,8 @@ varying vScreenNdc: vec2f;
 
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {
-    let pointOnNearPlane = frame.inverseViewProjection * vec4f(input.vScreenNdc, 1.0, 1.0);
-    let direction = normalize(pointOnNearPlane.xyz / pointOnNearPlane.w - frame.cameraPositionAndTime.xyz);
+    let pointAtInfinity = frame.inverseViewProjection * vec4f(input.vScreenNdc, 0.0, 1.0);
+    let direction = normalize(pointAtInfinity.xyz);
     let time = frame.cameraPositionAndTime.w;
     var window = vec3f(0.0);
     for (var tap = 0; tap < 4; tap++) {

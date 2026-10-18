@@ -209,6 +209,14 @@ export class AtmosphereSystem {
         }
     }
 
+    shiftOrigin(deltaX, deltaZ) {
+        this.cameraPositionKilometres[0] -= deltaX * 0.001;
+        this.cameraPositionKilometres[2] -= deltaZ * 0.001;
+        this.cloudBakeOriginKilometres[0] -= deltaX * 0.001;
+        this.cloudBakeOriginKilometres[2] -= deltaZ * 0.001;
+        this.writeParameters();
+    }
+
     requestFullRebuild() {
         this.staticRebuildPending = true;
         this.skyViewRebuildPending = true;

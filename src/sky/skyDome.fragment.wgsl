@@ -40,8 +40,8 @@ fn rayHitsSea(direction: vec3f) -> bool {
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {
     let unjitteredNdc = input.vScreenNdc - frame.jitterNdcAndInternalSize.xy;
-    let pointOnNearPlane = frame.inverseViewProjection * vec4f(unjitteredNdc, 1.0, 1.0);
-    let direction = normalize(pointOnNearPlane.xyz / pointOnNearPlane.w - frame.cameraPositionAndTime.xyz);
+    let pointAtInfinity = frame.inverseViewProjection * vec4f(unjitteredNdc, 0.0, 1.0);
+    let direction = normalize(pointAtInfinity.xyz);
     let previousClip = frame.previousViewProjection * vec4f(direction, 0.0);
     let currentClip = frame.viewProjection * vec4f(direction, 0.0);
     let motion = screenMotionFromClipPositions(currentClip, previousClip);

@@ -1,4 +1,4 @@
-import { stepCriticallyDampedSpring, wrapAngle } from "../character/suitController.js";
+import { closestPointOnBox, stepCriticallyDampedSpring, wrapAngle } from "../character/suitController.js";
 
 const degrees = Math.PI / 180;
 
@@ -29,6 +29,9 @@ export const cameraRigSettings = {
     pitchReturnDelaySeconds: 2.5,
     pitchReturnTimeConstantSeconds: 2.0,
     pitchReturnMaximumRateRadiansPerSecond: 15 * degrees,
+    collisionSphereRadiusMetres: 0.22,
+    collisionRecoveryRate: 2.8,
+    collisionSteps: 18,
     swayYawRadians: 0.15 * degrees,
     swayPitchRadians: 0.12 * degrees,
     firstPersonSwayScale: 0.5,
@@ -70,6 +73,76 @@ export class CameraRig {
         this.scratchEye = new Float64Array(3);
         this.presetChangeCount = 0;
         this.largestFrameMoveMetres = 0;
+        this.obstacleBoxes = null;
+        this.armFraction = 1;
+        this.closestPoint = new Float64Array(3);
+        this.scratchClearPosition = new Float64Array(3);
+        this.clearancePushCount = 0;
+    }
+
+    pushClearOfObstacles(position) {
+        const boxes = this.obstacleBoxes ? this.obstacleBoxes() : null;
+        if (!boxes || boxes.length === 0) {
+            return;
+        }
+        const radius = this.settings.collisionSphereRadiusMetres;
+        for (let iteration = 0; iteration < 3; iteration++) {
+            let pushed = false;
+            for (const box of boxes) {
+                const contact = closestPointOnBox(box, position[0], position[1], position[2], this.closestPoint);
+                if (contact.inside) {
+                    const axis = box.axes[contact.leastAxis];
+                    const push = (contact.leastPenetration + radius) * contact.leastSign;
+                    position[0] += axis[0] * push;
+                    position[1] += axis[1] * push;
+                    position[2] += axis[2] * push;
+                    pushed = true;
+                    continue;
+                }
+                const deltaX = position[0] - this.closestPoint[0];
+                const deltaY = position[1] - this.closestPoint[1];
+                const deltaZ = position[2] - this.closestPoint[2];
+                const distance = Math.hypot(deltaX, deltaY, deltaZ);
+                if (distance >= radius || distance < 1e-6) {
+                    continue;
+                }
+                const push = (radius - distance) / distance;
+                position[0] += deltaX * push;
+                position[1] += deltaY * push;
+                position[2] += deltaZ * push;
+                pushed = true;
+            }
+            if (!pushed) {
+                break;
+            }
+            this.clearancePushCount++;
+        }
+    }
+
+    freeFractionAlongArm(startX, startY, startZ, endX, endY, endZ) {
+        const boxes = this.obstacleBoxes ? this.obstacleBoxes() : null;
+        if (!boxes || boxes.length === 0) {
+            return 1;
+        }
+        const radius = this.settings.collisionSphereRadiusMetres;
+        const steps = this.settings.collisionSteps;
+        for (let stepIndex = 1; stepIndex <= steps; stepIndex++) {
+            const fraction = stepIndex / steps;
+            const x = startX + (endX - startX) * fraction;
+            const y = startY + (endY - startY) * fraction;
+            const z = startZ + (endZ - startZ) * fraction;
+            for (const box of boxes) {
+                if (box.poleLike) {
+                    continue;
+                }
+                const contact = closestPointOnBox(box, x, y, z, this.closestPoint);
+                const distance = contact.inside ? 0 : Math.hypot(x - this.closestPoint[0], y - this.closestPoint[1], z - this.closestPoint[2]);
+                if (distance < radius) {
+                    return Math.max(0, (stepIndex - 1) / steps);
+                }
+            }
+        }
+        return 1;
     }
 
     snapTo(controller, figure, yawRadians, pitchRadians = null) {
@@ -97,6 +170,13 @@ export class CameraRig {
         this.blendDurationSeconds = crossesFirstPerson ? this.settings.blendSecondsIntoOrOutOfFirstPerson : this.settings.blendSecondsBetweenThirdPersonPresets;
         this.blendElapsedSeconds = immediate ? this.blendDurationSeconds : 0;
         this.presetChangeCount++;
+    }
+
+    shiftOrigin(deltaX, deltaZ) {
+        this.pivotX.position -= deltaX;
+        this.pivotZ.position -= deltaZ;
+        this.position[0] -= deltaX;
+        this.position[2] -= deltaZ;
     }
 
     snapToPreset(presetIndex) {
@@ -191,6 +271,20 @@ export class CameraRig {
         let positionX = fromX + (toPosition[0] - fromX) * blend;
         let positionY = fromY + (toPosition[1] - fromY) * blend;
         let positionZ = fromZ + (toPosition[2] - fromZ) * blend;
+        if (firstPersonAmount < 0.99) {
+            const anchorX = this.pivotX.position;
+            const anchorY = this.pivotY.position + 0.1;
+            const anchorZ = this.pivotZ.position;
+            const freeFraction = this.freeFractionAlongArm(anchorX, anchorY, anchorZ, positionX, positionY, positionZ);
+            if (freeFraction < this.armFraction || step === 0) {
+                this.armFraction = freeFraction;
+            } else {
+                this.armFraction = freeFraction + (this.armFraction - freeFraction) * Math.exp(-this.settings.collisionRecoveryRate * step);
+            }
+            positionX = anchorX + (positionX - anchorX) * this.armFraction;
+            positionY = anchorY + (positionY - anchorY) * this.armFraction;
+            positionZ = anchorZ + (positionZ - anchorZ) * this.armFraction;
+        }
         const clearanceNeeded = Math.max(0, waterLevelMetres + settings.seaClearanceMetres - positionY) * (1 - firstPersonAmount);
         const clearanceRate = clearanceNeeded > this.clearanceLift ? settings.clearanceRiseRate : settings.clearanceRelaxRate;
         this.clearanceLift = clearanceNeeded + (this.clearanceLift - clearanceNeeded) * Math.exp(-clearanceRate * step);
@@ -198,6 +292,16 @@ export class CameraRig {
             this.clearanceLift = clearanceNeeded;
         }
         positionY += this.clearanceLift;
+        if (firstPersonAmount < 0.99) {
+            const clearPosition = this.scratchClearPosition;
+            clearPosition[0] = positionX;
+            clearPosition[1] = positionY;
+            clearPosition[2] = positionZ;
+            this.pushClearOfObstacles(clearPosition);
+            positionX = clearPosition[0];
+            positionY = clearPosition[1];
+            positionZ = clearPosition[2];
+        }
         const moved = Math.hypot(positionX - this.position[0], positionY - this.position[1], positionZ - this.position[2]);
         if (step > 0 && this.timeSeconds > 0.1) {
             this.largestFrameMoveMetres = Math.max(this.largestFrameMoveMetres, moved);

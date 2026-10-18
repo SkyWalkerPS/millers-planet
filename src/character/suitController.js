@@ -30,6 +30,39 @@ export function stepCriticallyDampedSpring(state, target, angularFrequency, delt
     state.velocity = (state.velocity - angularFrequency * offsetRate * deltaSeconds) * decay;
 }
 
+export const bodySphereHeightsMetres = [0.25, 0.95, 1.6];
+export const bodySphereRadiusMetres = 0.32;
+
+export function closestPointOnBox(box, x, y, z, out) {
+    const relativeX = x - box.centre[0];
+    const relativeY = y - box.centre[1];
+    const relativeZ = z - box.centre[2];
+    let inside = true;
+    let leastPenetration = Infinity;
+    let leastAxis = 0;
+    let leastSign = 1;
+    out[0] = box.centre[0];
+    out[1] = box.centre[1];
+    out[2] = box.centre[2];
+    for (let axis = 0; axis < 3; axis++) {
+        const direction = box.axes[axis];
+        const local = relativeX * direction[0] + relativeY * direction[1] + relativeZ * direction[2];
+        const half = box.halfSize[axis];
+        const clamped = Math.min(half, Math.max(-half, local));
+        if (Math.abs(local) > half) {
+            inside = false;
+        } else if (half - Math.abs(local) < leastPenetration) {
+            leastPenetration = half - Math.abs(local);
+            leastAxis = axis;
+            leastSign = local >= 0 ? 1 : -1;
+        }
+        out[0] += direction[0] * clamped;
+        out[1] += direction[1] * clamped;
+        out[2] += direction[2] * clamped;
+    }
+    return { inside, leastPenetration, leastAxis, leastSign };
+}
+
 export class SuitController {
     constructor({ seabedHeightAt, waterLevelAt = () => 0, settings = {} }) {
         this.settings = { ...locomotionSettings, ...settings };
@@ -50,6 +83,53 @@ export class SuitController {
         this.turningInPlace = false;
         this.inputLocked = false;
         this.distanceTravelled = 0;
+        this.obstacleBoxes = null;
+        this.collisionContacts = 0;
+        this.closestPoint = new Float64Array(3);
+    }
+
+    resolveObstacleCollisions() {
+        const boxes = this.obstacleBoxes ? this.obstacleBoxes() : null;
+        if (!boxes || boxes.length === 0) {
+            return;
+        }
+        for (let iteration = 0; iteration < 3; iteration++) {
+            let pushed = false;
+            for (const box of boxes) {
+                for (const heightAboveSeabed of bodySphereHeightsMetres) {
+                    const pointY = this.positionY + heightAboveSeabed;
+                    const contact = closestPointOnBox(box, this.positionX, pointY, this.positionZ, this.closestPoint);
+                    if (contact.inside) {
+                        const axis = box.axes[contact.leastAxis];
+                        const horizontalLength = Math.hypot(axis[0], axis[2]);
+                        if (horizontalLength < 0.2) {
+                            continue;
+                        }
+                        const push = (contact.leastPenetration + bodySphereRadiusMetres) / horizontalLength;
+                        this.positionX += axis[0] * contact.leastSign * push;
+                        this.positionZ += axis[2] * contact.leastSign * push;
+                        pushed = true;
+                        continue;
+                    }
+                    const deltaX = this.positionX - this.closestPoint[0];
+                    const deltaY = pointY - this.closestPoint[1];
+                    const deltaZ = this.positionZ - this.closestPoint[2];
+                    const distance = Math.hypot(deltaX, deltaY, deltaZ);
+                    const horizontal = Math.hypot(deltaX, deltaZ);
+                    if (distance >= bodySphereRadiusMetres || horizontal < 1e-4) {
+                        continue;
+                    }
+                    const push = (bodySphereRadiusMetres - distance) * (distance / horizontal);
+                    this.positionX += (deltaX / horizontal) * push;
+                    this.positionZ += (deltaZ / horizontal) * push;
+                    pushed = true;
+                }
+            }
+            if (!pushed) {
+                break;
+            }
+            this.collisionContacts++;
+        }
     }
 
     teleport(x, z, yawRadians) {
@@ -65,6 +145,11 @@ export class SuitController {
         this.velocityZ = 0;
         this.forwardAcceleration = 0;
         this.turningInPlace = false;
+    }
+
+    shiftOrigin(deltaX, deltaZ) {
+        this.positionX -= deltaX;
+        this.positionZ -= deltaZ;
     }
 
     wadingSpeedFactor() {
@@ -122,9 +207,23 @@ export class SuitController {
         this.forwardAcceleration = (this.planarSpeed - previousSpeed) / step;
         this.velocityX = Math.sin(this.facingYaw) * this.planarSpeed;
         this.velocityZ = Math.cos(this.facingYaw) * this.planarSpeed;
+        const previousX = this.positionX;
+        const previousZ = this.positionZ;
         this.positionX += this.velocityX * step;
         this.positionZ += this.velocityZ * step;
         this.positionY = this.seabedHeightAt(this.positionX, this.positionZ);
+        this.resolveObstacleCollisions();
+        this.positionY = this.seabedHeightAt(this.positionX, this.positionZ);
+        const movedX = this.positionX - previousX;
+        const movedZ = this.positionZ - previousZ;
+        if (this.collisionContacts > 0 && step > 0) {
+            const actualSpeed = Math.hypot(movedX, movedZ) / step;
+            if (actualSpeed < this.planarSpeed) {
+                this.planarSpeed = actualSpeed;
+                this.speedSpring.position = Math.min(this.speedSpring.position, Math.max(actualSpeed, this.speedSpring.position * 0.9));
+            }
+            this.collisionContacts = 0;
+        }
         this.distanceTravelled += this.planarSpeed * step;
     }
 }

@@ -64,6 +64,21 @@ function walkRipplesCameraPose(figure, controller) {
     };
 }
 
+const shipViewYawRadians = gargantuaAzimuthRadians - 0.42;
+const shipViewDistanceMetres = 26;
+
+function shipStateShot(state) {
+    return {
+        phase: 6,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 56,
+        ship: { x: Math.sin(shipViewYawRadians) * shipViewDistanceMetres, z: Math.cos(shipViewYawRadians) * shipViewDistanceMetres, yawRadians: shipViewYawRadians + 1.95, state },
+        pose: () => ({ position: [0, 1.7, 0], yawRadians: shipViewYawRadians, pitchRadians: 2.5 * degreesToRadians }),
+    };
+}
+
+
 export const shotDefinitions = {
     empty: {
         phase: 2,
@@ -150,6 +165,36 @@ export const shotDefinitions = {
         timeSeconds: 10,
         verticalFieldOfViewDegrees: 50,
         player: { preset: 1, x: 0, z: 0, yawRadians: gargantuaAzimuthRadians + 1.1, cameraYawRadians: gargantuaAzimuthRadians + 1.1, walkSeconds: 3.3, moveForward: 1, cameraPose: walkRipplesCameraPose },
+    },
+    "ship-0": shipStateShot(0),
+    "ship-1": shipStateShot(1),
+    "ship-2": shipStateShot(2),
+    "ship-3": shipStateShot(3),
+    "ship-4": shipStateShot(4),
+    "ship-0-silhouette": {
+        phase: 6,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 40,
+        ship: { x: Math.sin(gargantuaAzimuthRadians) * 34, z: Math.cos(gargantuaAzimuthRadians) * 34, yawRadians: gargantuaAzimuthRadians + Math.PI / 2, state: 0 },
+        pose: () => ({ position: [0, 0.9, 0], yawRadians: gargantuaAzimuthRadians, pitchRadians: 6 * degreesToRadians }),
+    },
+    hud: {
+        phase: 6,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 754,
+        verticalFieldOfViewDegrees: 56,
+        showHud: true,
+        ship: "opening",
+        player: { preset: 0, x: 0, z: 0, yawRadians: openingYawRadians, cameraYawRadians: openingYawRadians },
+    },
+    "camera-collide-ship": {
+        phase: 6,
+        hiddenSystems: ["testGeometry"],
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 56,
+        ship: { x: 0, z: 6.2, yawRadians: Math.PI / 2, state: 0 },
+        player: { preset: 0, x: 0, z: 2.4, yawRadians: Math.PI, cameraYawRadians: Math.PI, cameraPitchRadians: 4 * degreesToRadians },
     },
     "sea-wide": {
         phase: 4,

@@ -4,10 +4,12 @@
 #include<cloudDeckLayout>
 #include<aerialPerspectiveLayout>
 #include<suitMaterialParameters>
+#include<sceneProxyParameters>
 
 var<uniform> frame: FrameUniforms;
 var<uniform> atmosphere: AtmosphereParameters;
 var<uniform> suitMaterial: SuitMaterialParameters;
+var<uniform> sceneProxies: SceneProxyParameters;
 var gargantuaCurrentPatch: texture_2d<f32>;
 var gargantuaCurrentPatchSampler: sampler;
 var gargantuaPreviousPatch: texture_2d<f32>;
@@ -33,6 +35,7 @@ varying vPreviousClip: vec4f;
 #include<aerialPerspectiveApply>
 #include<cloudDeckLighting>
 #include<suitLighting>
+#include<sceneProxyQueries>
 
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {

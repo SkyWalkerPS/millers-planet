@@ -9,9 +9,20 @@ struct SeaSurfaceParameters {
     seabedShape: vec4f,
     rippleWindowCentreHalfTexel: vec4f,
     seabedRippleMarks: vec4f,
-    astronautBoundsAndEnabled: vec4f,
-    astronautCapsules: array<vec4f, 24>,
+    worldOriginAndUnused: vec4f,
+    cascadeOriginUvOffsetsFirstSecond: vec4f,
+    cascadeOriginUvOffsetsThird: vec4f,
 };
+
+fn cascadeOriginUvOffset(cascade: u32) -> vec2f {
+    if (cascade == 0u) {
+        return seaSurface.cascadeOriginUvOffsetsFirstSecond.xy;
+    }
+    if (cascade == 1u) {
+        return seaSurface.cascadeOriginUvOffsetsFirstSecond.zw;
+    }
+    return seaSurface.cascadeOriginUvOffsetsThird.xy;
+}
 
 fn rippleWindowFade(world: vec2f) -> f32 {
     let window = seaSurface.rippleWindowCentreHalfTexel;

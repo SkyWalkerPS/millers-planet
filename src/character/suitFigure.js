@@ -188,6 +188,30 @@ export class SuitFigure {
         this.chestTwist = 0;
     }
 
+    shiftOrigin(deltaX, deltaZ) {
+        for (const foot of this.feet) {
+            for (const points of [foot.plantAnkle, foot.ankle, foot.swingStartAnkle, foot.target]) {
+                points[0] -= deltaX;
+                points[2] -= deltaZ;
+            }
+            for (let point = 0; point < 4; point++) {
+                foot.solePoints[point * 3] -= deltaX;
+                foot.solePoints[point * 3 + 2] -= deltaZ;
+            }
+        }
+        for (const positions of [this.pelvisPosition, this.hipPositions, this.kneePositions, this.elbowPositions, this.eventPositions]) {
+            for (let index = 0; index < positions.length; index += 3) {
+                positions[index] -= deltaX;
+                positions[index + 2] -= deltaZ;
+            }
+        }
+        for (let bone = 0; bone < BONE_COUNT; bone++) {
+            this.world[bone * 16 + 12] -= deltaX;
+            this.world[bone * 16 + 14] -= deltaZ;
+            multiplyRigid(this.skin, bone * 16, this.world, bone * 16, this.inverseBind, bone * 16);
+        }
+    }
+
     pushFootEvent(kind, footIndex, x, y, z, yaw, strength) {
         if (this.eventCount >= maximumFootEventsPerFrame) {
             return;

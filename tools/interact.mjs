@@ -25,7 +25,7 @@ const CHECK_TITLES = {
   17: 'the console stays clean',
 };
 const CHECK_PHASES = { 1: 2, 2: 6, 3: 6, 4: 2, 5: 2, 6: 2, 7: 2, 8: 5, 9: 5, 10: 5, 11: 5, 12: 5, 13: 5, 14: 7, 15: 2, 16: 6, 17: 2 };
-const NOT_WRITTEN_YET = new Set([2, 3, 14]);
+const NOT_WRITTEN_YET = new Set([14]);
 const WHEEL_EVENT_GAP_MS = 16;
 const SETTLE_AFTER_BLOCK_MS = 200;
 const DISTANCE_TOLERANCE_METRES = 1e-3;
@@ -284,7 +284,71 @@ try {
     await page.mouseMove(centre.x, centre.y);
     await sleep(200);
 
-    for (const number of [2, 3]) if (shouldRun(number)) record(number, false, `not written yet: this check arrives with phase ${CHECK_PHASES[number]}`);
+    if (shouldRun(2)) {
+      const opening = await page.evaluate(pageExpression(`(() => {
+        const stats = window.millersPlanet.stats();
+        return { preset: stats.camera.preset, mode: stats.camera.mode, rigYawDegrees: stats.camera.rigYawDegrees, headingDegrees: stats.astronaut.headingDegrees, ship: stats.ship, pointerLocked: stats.pointerLocked, audioState: stats.audio.state };
+      })()`));
+      const problems = [];
+      if (opening.preset !== 0) problems.push(`preset ${opening.preset} (expected 0)`);
+      if (opening.mode !== 'player') problems.push(`camera mode ${opening.mode} (expected player, no cutscene)`);
+      const behindError = Math.abs(((opening.rigYawDegrees - opening.headingDegrees + 540) % 360) - 180);
+      if (behindError > 15) problems.push(`camera yaw ${behindError.toFixed(1)} degrees off the astronaut's heading (expected behind, within 15)`);
+      if (opening.ship.state !== 0 || !opening.ship.visible) problems.push(`ship state ${opening.ship.state}, visible ${opening.ship.visible} (expected the intact ship)`);
+      if (opening.ship.distanceFromAstronautMetres < 15 || opening.ship.distanceFromAstronautMetres > 25) problems.push(`ship ${opening.ship.distanceFromAstronautMetres.toFixed(1)} m away (expected 15-25)`);
+      if (opening.pointerLocked) problems.push('the pointer is locked before any click');
+      if (opening.audioState === 'running') problems.push('audio is running before any click');
+      record(2, problems.length === 0, problems.length ? problems.join('; ') : `preset 0, player camera ${behindError.toFixed(1)} degrees off the heading, intact ship ${opening.ship.distanceFromAstronautMetres.toFixed(1)} m away, pointer free, audio ${opening.audioState}`);
+    }
+
+    if (shouldRun(3)) {
+      const problems = [];
+      const screen = await page.evaluate(`(() => {
+        const canvas = document.querySelector('canvas');
+        const panel = document.getElementById('clocks');
+        const visible = [...document.body.querySelectorAll('*')].filter((element) => {
+          const style = getComputedStyle(element);
+          const box = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0 && box.width > 0 && box.height > 0;
+        });
+        const strays = visible.filter((element) => element !== canvas && !(panel && (element === panel || panel.contains(element)))).map((element) => element.tagName + (element.id ? '#' + element.id : ''));
+        const box = panel ? panel.getBoundingClientRect() : null;
+        const style = panel ? getComputedStyle(panel) : null;
+        return {
+          strays,
+          hasPanel: Boolean(panel),
+          leftFraction: box ? box.left / innerWidth : null,
+          topFraction: box ? box.top / innerHeight : null,
+          backdropFilter: style ? (style.backdropFilter || style.webkitBackdropFilter || 'none') : 'none',
+          fontFamily: style ? style.fontFamily : null,
+        };
+      })()`);
+      if (!screen.hasPanel) problems.push('no clock panel (#clocks) on the page');
+      if (screen.strays.length) problems.push(`other visible elements: ${screen.strays.join(', ')}`);
+      if (screen.hasPanel && (screen.leftFraction >= 0.1 || screen.topFraction >= 0.1)) problems.push(`panel at ${(screen.leftFraction * 100).toFixed(1)}% / ${(screen.topFraction * 100).toFixed(1)}% of the viewport (expected the top-left corner)`);
+      if (screen.backdropFilter === 'none') problems.push('the panel has no backdrop-filter (expected glass)');
+      const skip = await page.evaluate(pageExpression(`(async () => {
+        const api = window.millersPlanet;
+        const results = [];
+        for (const seconds of [3600, 1200, 754.6]) {
+          api.freezeTime(seconds);
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          const clocks = api.stats().clocks;
+          const panel = document.getElementById('clocks');
+          results.push({ seconds, ratio: clocks.earthSeconds / clocks.millerSeconds, millerText: clocks.panelMillerText, earthText: clocks.panelEarthText, panelText: panel ? panel.textContent : '' });
+        }
+        api.freezeTime(0);
+        api.freezeTime(null);
+        return results;
+      })()`));
+      const expected = { 3600: ['01:00:00', '7 yr 0 d 00:00'], 1200: ['00:20:00', '2 yr 121 d 18:00'], 754.6: ['00:12:34', '1 yr 170 d 16:09'] };
+      for (const entry of skip) {
+        if (Math.abs(entry.ratio - 61362) > 1e-6) problems.push(`Earth/Miller ratio ${entry.ratio} at ${entry.seconds} s (expected 61362)`);
+        const [millerExpected, earthExpected] = expected[entry.seconds];
+        if (entry.millerText !== millerExpected || entry.earthText !== earthExpected) problems.push(`at ${entry.seconds} s the panel shows ${entry.millerText} / ${entry.earthText} (expected ${millerExpected} / ${earthExpected})`);
+      }
+      record(3, problems.length === 0, problems.length ? problems.join('; ') : `only the canvas and the clock panel are visible; panel at ${(screen.leftFraction * 100).toFixed(1)}% / ${(screen.topFraction * 100).toFixed(1)}% with backdrop-filter "${screen.backdropFilter}"; time skips 3600 / 1200 / 754.6 s show ${skip.map((entry) => entry.millerText + ' | ' + entry.earthText).join(', ')} (ratio 61362)`);
+    }
 
     if (shouldRun(4)) {
       const before = await page.evaluate(`({ elementCount: document.querySelectorAll('*').length, signature: [...document.querySelectorAll('*')].map((element) => element.tagName + '#' + element.id).join(',') })`);

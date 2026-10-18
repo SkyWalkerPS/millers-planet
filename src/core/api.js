@@ -34,6 +34,19 @@ export function installPageApi() {
             return app.stats().astronaut;
         },
         enterPlayerMode: () => requireApplication().enterPlayerMode(),
+        relocateShipForWave: (waveIndex, impactX, impactZ) => requireApplication().relocateShipForWave(waveIndex, impactX, impactZ),
+        placeOpeningShip: () => requireApplication().placeOpeningShip(),
+        placeShip: ({ x = 0, z = 0, yawDegrees = 0, state = 0 } = {}) => {
+            requireApplication().lander.place(x, z, (yawDegrees * Math.PI) / 180, state);
+            return requireApplication().shipStats();
+        },
+        shiftWorldOrigin: (deltaX, deltaZ) => {
+            const app = requireApplication();
+            app.shiftWorldOrigin(deltaX, deltaZ);
+            return app.stats().origin;
+        },
+        walkToShip: (options) => requireApplication().walkToShip(options),
+        probeShipCollision: (options) => requireApplication().probeShipCollision(options),
         runFootDriftWalk: (options) => requireApplication().runFootDriftWalk(options),
         requestSkyUpdate: () => {
             requireApplication().gargantuaFirstFillPending = true;
@@ -90,8 +103,8 @@ export function installPageApi() {
         skipTo() {
             throw new Error("skipTo arrives with the wave in phase 7");
         },
-        setShipState() {
-            throw new Error("setShipState arrives with the ship in phase 6");
+        setShipState(state) {
+            return requireApplication().setShipState(state);
         },
         injectInput(options = {}) {
             return requireApplication().injectInput(options);
