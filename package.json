@@ -1,0 +1,30 @@
+{
+  "name": "millers-planet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A walkable, real-time recreation of the water planet from Interstellar (fan art), rendered with Babylon.js on WebGPU",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "shots": "node tools/shoot.mjs",
+    "bench": "node tools/bench.mjs",
+    "flight": "node tools/flight.mjs",
+    "interact": "node tools/interact.mjs",
+    "spike": "node tools/spike.mjs",
+    "check:machine": "node tools/preflight.mjs",
+    "size": "node tools/size-report.mjs",
+    "sheet": "node tools/contact-sheet.mjs",
+    "comments": "node tools/check-comments.mjs",
+    "lockfile": "node tools/check-lockfile.mjs",
+    "test:pacing": "node tools/test-pacing.mjs"
+  },
+  "dependencies": {
+    "@babylonjs/core": "9.18.0"
+  },
+  "devDependencies": {
+    "vite": "8.1.5"
+  }
+}

@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fake Miller's Planet (harness test page)</title>
+<link rel="icon" href="data:,">
+<style>
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+#scene { display: block; width: 100vw; height: 100vh; touch-action: none; outline: none; }
+#webgpu-missing { display: none; position: fixed; left: 0; right: 0; top: 50%; transform: translateY(-50%); margin: 0; text-align: center; color: #d8d4cc; font: 16px/1.5 system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<p id="webgpu-missing">Miller's Planet needs WebGPU. Open it in a recent desktop Chrome or Edge.</p>
+<script type="module">
+const searchParameters = new URLSearchParams(location.search);
+const plantedFaults = new Set((searchParameters.get('fault') || '').split(',').filter(Boolean));
+const pinnedScaleText = searchParameters.get('scale');
+let pinnedScale = pinnedScaleText === null ? null : Math.min(1, Math.max(0.1, Number(pinnedScaleText)));
+const passNames = ['compute-pattern', 'beauty', 'taau', 'bloom', 'shafts', 'composite'];
+const passShares = [0.05, 0.45, 0.2, 0.12, 0.06, 0.12];
+const cameraModeCodes = { player: 0, scripted: 1, shot: 2, debug: 3 };
+const frameLogCapacity = 4096;
+const timingLatencyFrames = 2;
+const shotDefinitions = {
+  empty: { yawDegrees: 0, pitchDegrees: 2, distance: 6, targetHeight: 1.6, crop: {} },
+  'debug-orbit-a': { yawDegrees: 40, pitchDegrees: 10, distance: 8, targetHeight: 1.6, crop: {} },
+  'debug-orbit-b': { yawDegrees: 200, pitchDegrees: -20, distance: 3, targetHeight: 1.6, crop: { visor: [700, 380, 320, 220] } },
+  'spike-ground': { yawDegrees: 0, pitchDegrees: -55, distance: 4, targetHeight: 1.6, crop: { ground: { x: 100, y: 700, width: 400, height: 300 } } },
+};
+
+const canvas = document.getElementById('scene');
+const drawingContext = canvas.getContext('2d');
+const heldKeyCodes = new Set();
+const camera = { preset: 0, mode: 'player', yawDegrees: 0, pitchDegrees: 2.7, distance: 3.2, fovDegrees: 56, targetHeight: 1.45, position: [0, 1.6, -3.2] };
+const frameLog = {
+  frameIndexBySlot: new Int32Array(frameLogCapacity).fill(-1),
+  rafTimeBySlot: new Float64Array(frameLogCapacity),
+  spanBySlot: new Float32Array(frameLogCapacity),
+  busyBySlot: new Float32Array(frameLogCapacity),
+  passBySlot: new Float32Array(frameLogCapacity * passNames.length),
+  scaleBySlot: new Float32Array(frameLogCapacity),
+  generationBySlot: new Int32Array(frameLogCapacity),
+  cameraModeBySlot: new Int32Array(frameLogCapacity),
+  timedBySlot: new Uint8Array(frameLogCapacity),
+  latestFrameIndex: -1,
+};
+let isReady = false;
+let liveLoopActive = true;
+let latestFrameIndex = -1;
+let framesSubmitted = 0;
+let framesTimed = 0;
+let renderTargetGeneration = 1;
+let controllerScale = 0.8;
+let controllerWindow = [];
+let lastSpanMs = 0;
+let lastPassMs = {};
+let simTime = 0;
+let timeFrozen = false;
+let liveTickCounter = 0;
+let audioContext = null;
+let adapterSummary = { vendor: '', architecture: '' };
+let randomState = 12345;
+let cameraTransition = null;
+let previousRenderTime = null;
+const pendingTimings = [];
+const gpuErrors = plantedFaults.has('gpu-errors') ? ['planted fake GPU error: validation failed in pass beauty'] : [];
+
+function random() {
+  randomState = (randomState * 16807) % 2147483647;
+  return randomState / 2147483647;
+}
+
+function currentScale() {
+  return pinnedScale ?? controllerScale;
+}
+
+function internalSize() {
+  return [Math.round(canvas.width * currentScale()), Math.round(canvas.height * currentScale())];
+}
+
+function groundFraction() {
+  return Math.min(1, Math.max(0, 0.5 - camera.pitchDegrees / 56));
+}
+
+function modelSpanMilliseconds(frameIndex, scale) {
+  const groundCost = plantedFaults.has('heavy-ground') ? 18 : 7;
+  let span = 3 + (3 + groundCost * groundFraction()) * scale * scale;
+  span *= 1 + (random() - 0.5) * 0.06;
+  if (plantedFaults.has('slow-frames') && frameIndex % 400 === 399) span = 17.5;
+  return span;
+}
+
+function resizeCanvas() {
+  const ratio = plantedFaults.has('wrong-size') ? 1 : devicePixelRatio;
+  canvas.width = Math.round(canvas.clientWidth * ratio);
+  canvas.height = Math.round(canvas.clientHeight * ratio);
+}
+
+function feedController(span) {
+  if (pinnedScale !== null) return;
+  if (span > 12.5) {
+    controllerScale = Math.max(0.5, controllerScale * 0.9);
+    controllerWindow = [];
+    return;
+  }
+  controllerWindow.push(span);
+  if (controllerWindow.length < 12) return;
+  const sorted = controllerWindow.slice().sort((first, second) => first - second);
+  const windowMedian = sorted[6];
+  controllerWindow = [];
+  if (windowMedian > 11) controllerScale = Math.max(0.5, controllerScale * 0.95);
+  else if (windowMedian < 10.5) controllerScale = Math.min(1, controllerScale * 1.02);
+}
+
+function recordTiming(timing) {
+  const slot = timing.frameIndex % frameLogCapacity;
+  if (frameLog.frameIndexBySlot[slot] !== timing.frameIndex) return;
+  framesTimed++;
+  if (plantedFaults.has('untimed') && timing.frameIndex % 500 === 250) return;
+  frameLog.spanBySlot[slot] = timing.span;
+  frameLog.busyBySlot[slot] = timing.span * 0.97;
+  for (let passIndex = 0; passIndex < passNames.length; passIndex++) frameLog.passBySlot[slot * passNames.length + passIndex] = timing.span * passShares[passIndex];
+  frameLog.timedBySlot[slot] = 1;
+  lastSpanMs = timing.span;
+  lastPassMs = Object.fromEntries(passNames.map((name, passIndex) => [name, timing.span * passShares[passIndex]]));
+  feedController(timing.span);
+}
+
+function resolveTimingsUpTo(frameIndexLimit) {
+  while (pendingTimings.length && pendingTimings[0].frameIndex <= frameIndexLimit) recordTiming(pendingTimings.shift());
+}
+
+function flushPendingTimings() {
+  resolveTimingsUpTo(Infinity);
+}
+
+function drawScene() {
+  const width = canvas.width;
+  const height = canvas.height;
+  const horizon = height * (0.5 + camera.pitchDegrees / camera.fovDegrees);
+  const sky = drawingContext.createLinearGradient(0, 0, 0, Math.max(1, horizon));
+  sky.addColorStop(0, '#8d8a86');
+  sky.addColorStop(1, '#d9cbb4');
+  drawingContext.fillStyle = sky;
+  drawingContext.fillRect(0, 0, width, Math.max(0, horizon));
+  drawingContext.fillStyle = '#2f3b3a';
+  drawingContext.fillRect(0, Math.max(0, horizon), width, height);
+  drawingContext.fillStyle = '#f2efe8';
+  drawingContext.font = `${Math.round(height / 14)}px system-ui, sans-serif`;
+  drawingContext.fillText(`fake page: ${camera.label || camera.mode}`, width * 0.05, height * 0.12);
+  drawingContext.font = `${Math.round(height / 30)}px system-ui, sans-serif`;
+  drawingContext.fillText(`yaw ${camera.yawDegrees.toFixed(1)}  pitch ${camera.pitchDegrees.toFixed(1)}  distance ${camera.distance.toFixed(2)}  scale ${currentScale().toFixed(3)}  frame ${latestFrameIndex}`, width * 0.05, height * 0.2);
+}
+
+function advanceCameraTransition(rafTime) {
+  const deltaSeconds = previousRenderTime === null ? 1 / 60 : Math.min(0.1, Math.max(0, (rafTime - previousRenderTime) / 1000));
+  previousRenderTime = rafTime;
+  if (!cameraTransition) return;
+  cameraTransition.elapsedSeconds += deltaSeconds;
+  const linear = Math.min(1, cameraTransition.elapsedSeconds / cameraTransition.durationSeconds);
+  const eased = linear * linear * (3 - 2 * linear);
+  for (const key of Object.keys(cameraTransition.to)) camera[key] = cameraTransition.from[key] + (cameraTransition.to[key] - cameraTransition.from[key]) * eased;
+  if (linear >= 1) cameraTransition = null;
+}
+
+function renderOneFrame(rafTime) {
+  advanceCameraTransition(rafTime);
+  const frameIndex = ++latestFrameIndex;
+  const scale = currentScale();
+  const slot = frameIndex % frameLogCapacity;
+  frameLog.frameIndexBySlot[slot] = frameIndex;
+  frameLog.rafTimeBySlot[slot] = rafTime;
+  frameLog.scaleBySlot[slot] = scale;
+  frameLog.generationBySlot[slot] = renderTargetGeneration;
+  frameLog.cameraModeBySlot[slot] = cameraModeCodes[camera.mode] ?? -1;
+  frameLog.timedBySlot[slot] = 0;
+  frameLog.latestFrameIndex = frameIndex;
+  framesSubmitted++;
+  if (plantedFaults.has('reallocations') && frameIndex % 600 === 300) renderTargetGeneration++;
+  if (plantedFaults.has('gpu-errors-later') && frameIndex === 120) gpuErrors.push('planted fake GPU error raised at frame 120');
+  pendingTimings.push({ frameIndex, span: modelSpanMilliseconds(frameIndex, scale) });
+  resolveTimingsUpTo(frameIndex - timingLatencyFrames);
+  if (!timeFrozen) simTime += 1 / 60;
+  drawScene();
+  return frameIndex;
+}
+
+function exportFrameLog(sinceFrameIndex) {
+  const firstFrameIndex = Math.max(sinceFrameIndex + 1, frameLog.latestFrameIndex - frameLogCapacity + 1, 0);
+  const exported = { labelNames: passNames.slice(), frameIndex: [], rafTimeMs: [], gpuSpanMs: [], gpuBusyMs: [], passMs: [], scale: [], generation: [], wavePhaseCode: [], cameraModeCode: [], untimedFrames: 0, latestFrameIndex: frameLog.latestFrameIndex };
+  for (let frameIndex = firstFrameIndex; frameIndex <= frameLog.latestFrameIndex; frameIndex++) {
+    const slot = frameIndex % frameLogCapacity;
+    if (frameLog.frameIndexBySlot[slot] !== frameIndex) continue;
+    if (!frameLog.timedBySlot[slot]) {
+      exported.untimedFrames++;
+      continue;
+    }
+    exported.frameIndex.push(frameIndex);
+    exported.rafTimeMs.push(frameLog.rafTimeBySlot[slot]);
+    exported.gpuSpanMs.push(frameLog.spanBySlot[slot]);
+    exported.gpuBusyMs.push(frameLog.busyBySlot[slot]);
+    exported.passMs.push(Array.from(frameLog.passBySlot.subarray(slot * passNames.length, (slot + 1) * passNames.length)));
+    exported.scale.push(frameLog.scaleBySlot[slot]);
+    exported.generation.push(frameLog.generationBySlot[slot]);
+    exported.wavePhaseCode.push(0);
+    exported.cameraModeCode.push(frameLog.cameraModeBySlot[slot]);
+  }
+  return exported;
+}
+
+function onAnimationFrame(rafTime) {
+  requestAnimationFrame(onAnimationFrame);
+  if (!liveLoopActive || !isReady) return;
+  liveTickCounter++;
+  if (plantedFaults.has('drop-frames') && liveTickCounter % 300 === 150) return;
+  renderOneFrame(rafTime);
+}
+
+const nextAnimationFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+async function renderFrames(frameCount = 1, options = {}) {
+  liveLoopActive = false;
+  try {
+    for (let frame = 0; frame < frameCount; frame++) {
+      if (options.dt && !timeFrozen) simTime += options.dt - 1 / 60;
+      renderOneFrame(options.at ?? performance.now());
+      await nextTask();
+    }
+    flushPendingTimings();
+    return { frameIndex: latestFrameIndex, gpu: { spanMs: lastSpanMs, passes: { ...lastPassMs } }, renderScale: currentScale(), internal: internalSize() };
+  } finally {
+    liveLoopActive = true;
+  }
+}
+
+async function benchmark({ frames = 240, warmup = 30, paced = true } = {}) {
+  liveLoopActive = false;
+  try {
+    flushPendingTimings();
+    const submittedBefore = framesSubmitted;
+    const timedBefore = framesTimed;
+    const measuredFrameIndices = [];
+    const intervalMs = [];
+    let previousTime = null;
+    for (let iteration = 0; iteration < warmup + frames; iteration++) {
+      const time = paced ? await nextAnimationFrame() : (await nextTask(), performance.now());
+      const frameIndex = renderOneFrame(time);
+      if (iteration >= warmup) {
+        measuredFrameIndices.push(frameIndex);
+        intervalMs.push(previousTime === null ? NaN : time - previousTime);
+      }
+      previousTime = time;
+    }
+    flushPendingTimings();
+    const result = { frames, warmup, paced, passNames: passNames.slice(), spanMs: [], busyMs: [], passMs: Object.fromEntries(passNames.map((name) => [name, []])), scale: [], intervalMs, generation: [], pipelinesCreated: [], output: [canvas.width, canvas.height], internal: internalSize() };
+    measuredFrameIndices.forEach((frameIndex, position) => {
+      const slot = frameIndex % frameLogCapacity;
+      const timed = frameLog.timedBySlot[slot] === 1;
+      result.spanMs.push(timed ? frameLog.spanBySlot[slot] : null);
+      result.busyMs.push(timed ? frameLog.busyBySlot[slot] : null);
+      passNames.forEach((name, passIndex) => result.passMs[name].push(timed ? frameLog.passBySlot[slot * passNames.length + passIndex] : null));
+      result.scale.push(frameLog.scaleBySlot[slot]);
+      result.generation.push(frameLog.generationBySlot[slot]);
+      result.pipelinesCreated.push(plantedFaults.has('pipelines') && position === 5 ? 2 : 0);
+    });
+    result.framesSubmitted = framesSubmitted - submittedBefore;
+    result.framesTimed = framesTimed - timedBefore - (plantedFaults.has('timing-mismatch') ? 3 : 0);
+    return result;
+  } finally {
+    liveLoopActive = true;
+  }
+}
+
+function spikeResults() {
+  const names = ['S0', 'S0b', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13'];
+  return names.map((name) => {
+    if (name === 'S0' && plantedFaults.has('spike-s0-fail')) return { name, pass: false, details: 'fake page: planted S0 failure', fallbackUsed: null };
+    if (name === 'S2' && plantedFaults.has('spike-fail')) return { name, pass: false, details: 'fake page: planted S2 failure', fallbackUsed: null };
+    if (name === 'S7' && plantedFaults.has('spike-fallback')) return { name, pass: true, details: 'fake page: primary path failed, copy path works', fallbackUsed: 'copyTextureToTexture' };
+    return { name, pass: true, details: `fake page: ${name} simulated`, fallbackUsed: null };
+  });
+}
+
+function stats() {
+  return {
+    gpu: { source: plantedFaults.has('no-timestamps') ? 'none' : 'timestamp-query', passNames: passNames.slice(), lastSpanMs, lastPassMs: { ...lastPassMs }, quantizedSuspect: plantedFaults.has('quantized'), framesSubmitted, framesTimed },
+    gpuErrors: gpuErrors.slice(),
+    pipelinesCreated: 0,
+    output: [canvas.width, canvas.height],
+    internal: internalSize(),
+    renderScale: currentScale(),
+    renderTargetGeneration,
+    adapter: plantedFaults.has('wrong-vendor') ? { vendor: 'intel', architecture: 'gen-12lp' } : { ...adapterSummary },
+    deviceLost: plantedFaults.has('device-lost'),
+    simTime,
+    timeFrozen,
+    wave: { index: 0, phase: 'calm', secondsIntoPhase: simTime, schedule: { firstImpact: 300, period: 300, mountainsLead: 60, braceLead: 8, underwater: 5, drain: 6 }, impactPosition: null, distanceMetres: null },
+    ship: { state: 0, position: [18, 0, 8], tiltDegrees: 0, visible: true },
+    astronaut: { position: [0, 0, 0], headingDegrees: 0, horizontalSpeed: 0, braced: false, inputLocked: false, wetness: 0 },
+    feet: [],
+    camera: { preset: camera.preset, mode: camera.mode, yawDegrees: camera.yawDegrees, pitchDegrees: camera.pitchDegrees, distance: camera.distance, fovDegrees: camera.fovDegrees, position: camera.position.slice() },
+    clocks: { millerSeconds: simTime, earthSeconds: simTime * 61362, millerText: '00:00:00', earthText: '0 yr 0 d 00:00' },
+    audio: { state: audioContext ? audioContext.state : 'none', muffleCutoffHz: 20000 },
+    pointerLocked: document.pointerLockElement === canvas,
+    helmetRimVisible: false,
+    sky: { updatesCompleted: 0, lastUpdateMs: 0, slicesPerRefresh: 32, patchDirection: [0, 0.3, 1] },
+    origin: { offset: [0, 0, 0], shifts: 0 },
+    input: { heldKeys: [...heldKeyCodes] },
+  };
+}
+
+const api = {
+  isReady: false,
+  ready: null,
+  stats,
+  renderFrames,
+  benchmark,
+  frameLog: (sinceFrameIndex = -1) => exportFrameLog(sinceFrameIndex),
+  freezeTime(seconds) {
+    if (seconds === null || seconds === undefined) {
+      timeFrozen = false;
+    } else {
+      timeFrozen = true;
+      simTime = seconds;
+    }
+  },
+  setCameraShot(name) {
+    const definition = shotDefinitions[name];
+    if (!definition) throw new Error(`unknown shot "${name}"`);
+    cameraTransition = null;
+    Object.assign(camera, { yawDegrees: definition.yawDegrees, pitchDegrees: definition.pitchDegrees, distance: definition.distance, targetHeight: definition.targetHeight, mode: 'shot', label: name });
+    return { name, crop: { ...definition.crop } };
+  },
+  setViewPreset(preset) {
+    camera.preset = preset;
+    camera.mode = 'player';
+  },
+  skipTo() {},
+  setShipState() {},
+  injectInput() {},
+  setSystemEnabled() {},
+  systems: ['testScene', 'computePattern', 'post'],
+  debug: {
+    setOrbitCamera({ yawDegrees = camera.yawDegrees, pitchDegrees = camera.pitchDegrees, distance = camera.distance, targetHeight = camera.targetHeight, transitionSeconds = 0 } = {}) {
+      const targetPose = { yawDegrees, pitchDegrees, distance, targetHeight };
+      if (transitionSeconds > 0) {
+        cameraTransition = { from: { yawDegrees: camera.yawDegrees, pitchDegrees: camera.pitchDegrees, distance: camera.distance, targetHeight: camera.targetHeight }, to: targetPose, elapsedSeconds: 0, durationSeconds: transitionSeconds };
+      } else {
+        cameraTransition = null;
+        Object.assign(camera, targetPose);
+      }
+      camera.mode = 'debug';
+      camera.label = 'debug orbit';
+    },
+    pinRenderScale(scale) {
+      pinnedScale = scale;
+    },
+    setAstronautPosition() {},
+    requestSkyUpdate() {},
+    spike: {
+      async runAll() {
+        await nextTask();
+        return spikeResults();
+      },
+      async run(name) {
+        return spikeResults().find((result) => result.name === name) || null;
+      },
+    },
+  },
+};
+window.millersPlanet = api;
+
+canvas.addEventListener('pointerdown', async () => {
+  if (!plantedFaults.has('no-lock')) {
+    try {
+      await canvas.requestPointerLock();
+    } catch (error) {
+      console.warn(`pointer lock refused: ${error.message}`);
+    }
+  }
+  if (!plantedFaults.has('no-audio')) {
+    audioContext = audioContext || new AudioContext();
+    await audioContext.resume();
+  }
+  if (plantedFaults.has('click-adds-dom')) document.body.appendChild(document.createElement('div'));
+  if (plantedFaults.has('console-error')) console.error('planted console error after the first click');
+});
+
+function onWheel(event) {
+  const locked = document.pointerLockElement === canvas;
+  const shouldPrevent = !plantedFaults.has('no-prevent') && (!plantedFaults.has('prevent-only-locked') || locked);
+  if (shouldPrevent) event.preventDefault();
+  if (plantedFaults.has('wheel-zoom') && !event.ctrlKey) camera.distance += event.deltaY * 0.01;
+  if (plantedFaults.has('ctrl-wheel-zoom') && event.ctrlKey) camera.distance += event.deltaY * 0.01;
+  if (plantedFaults.has('pinch-zoom-symmetric') && event.ctrlKey) camera.distance *= Math.exp(event.deltaY * 0.01);
+}
+window.addEventListener('wheel', onWheel, { passive: false });
+canvas.addEventListener('wheel', onWheel, { passive: false });
+
+window.addEventListener('keydown', (event) => {
+  heldKeyCodes.add(event.code);
+  if (plantedFaults.has('key-zoom')) {
+    if (event.key === '+' || event.key === '=') camera.distance -= 0.5;
+    if (event.key === '-' || event.key === '_') camera.distance += 0.5;
+  }
+});
+window.addEventListener('keyup', (event) => heldKeyCodes.delete(event.code));
+window.addEventListener('blur', () => heldKeyCodes.clear());
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement !== canvas && !plantedFaults.has('keep-keys')) heldKeyCodes.clear();
+});
+window.addEventListener('resize', resizeCanvas);
+
+async function initialise() {
+  if (plantedFaults.has('console-error-at-start')) console.error('planted console error at start-up');
+  if (plantedFaults.has('not-ready')) return new Promise(() => {});
+  if (!navigator.gpu) {
+    document.getElementById('webgpu-missing').style.display = 'block';
+    canvas.style.display = 'none';
+    return false;
+  }
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  adapterSummary = { vendor: adapter?.info?.vendor || '', architecture: adapter?.info?.architecture || '' };
+  resizeCanvas();
+  drawScene();
+  isReady = true;
+  api.isReady = true;
+  requestAnimationFrame(onAnimationFrame);
+  return true;
+}
+api.ready = initialise();
+</script>
+</body>
+</html>

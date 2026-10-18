@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WebGPU timestamp probe</title>
+<link rel="icon" href="data:,">
+</head>
+<body>
+<script type="module">
+const searchParameters = new URLSearchParams(location.search);
+const requestedFrameCount = Number(searchParameters.get('frames') || 300);
+const readbackRingSize = 8;
+const workgroupCount = 256;
+const threadsPerWorkgroup = 64;
+window.timestampProbe = { done: false, result: null };
+
+const computeShaderSource = `
+@group(0) @binding(0) var<storage, read_write> values: array<f32>;
+@compute @workgroup_size(${threadsPerWorkgroup})
+fn main(@builtin(global_invocation_id) invocationId: vec3u) {
+  var value = f32(invocationId.x) * 0.001;
+  for (var iteration = 0u; iteration < 512u; iteration++) {
+    value = fract(value * 1.618034 + 0.137);
+  }
+  values[invocationId.x] = value;
+}`;
+
+async function runProbe() {
+  if (!navigator.gpu) {
+    return { error: 'navigator.gpu is missing, so WebGPU is not available in this browser' };
+  }
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) {
+    return { error: 'navigator.gpu.requestAdapter() returned no adapter' };
+  }
+  const adapterInformation = adapter.info || {};
+  const adapterSummary = {
+    vendor: adapterInformation.vendor || '',
+    architecture: adapterInformation.architecture || '',
+    description: adapterInformation.description || '',
+    hasTimestampQuery: adapter.features.has('timestamp-query'),
+  };
+  if (!adapterSummary.hasTimestampQuery) {
+    return adapterSummary;
+  }
+  const device = await adapter.requestDevice({ requiredFeatures: ['timestamp-query'] });
+  const uncapturedErrors = [];
+  device.addEventListener('uncapturederror', (event) => uncapturedErrors.push(event.error.message));
+  const storageBuffer = device.createBuffer({ size: workgroupCount * threadsPerWorkgroup * 4, usage: GPUBufferUsage.STORAGE });
+  const pipeline = device.createComputePipeline({
+    layout: 'auto',
+    compute: { module: device.createShaderModule({ code: computeShaderSource }), entryPoint: 'main' },
+  });
+  const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: storageBuffer } }] });
+  const querySet = device.createQuerySet({ type: 'timestamp', count: 2 });
+  const resolveBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+  const freeReadbackBuffers = Array.from({ length: readbackRingSize }, () => device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }));
+  const stampPairs = [];
+  const rafTimes = [];
+  const pendingMaps = [];
+  let framesWithoutReadback = 0;
+  for (let frame = 0; frame < requestedFrameCount; frame++) {
+    rafTimes.push(await new Promise((resolve) => requestAnimationFrame(resolve)));
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass({ timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(workgroupCount);
+    pass.end();
+    encoder.resolveQuerySet(querySet, 0, 2, resolveBuffer, 0);
+    const readbackBuffer = freeReadbackBuffers.pop();
+    if (readbackBuffer) {
+      encoder.copyBufferToBuffer(resolveBuffer, 0, readbackBuffer, 0, 16);
+    } else {
+      framesWithoutReadback++;
+    }
+    device.queue.submit([encoder.finish()]);
+    if (readbackBuffer) {
+      pendingMaps.push(readbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
+        const stamps = new BigUint64Array(readbackBuffer.getMappedRange());
+        stampPairs.push([stamps[0].toString(), stamps[1].toString()]);
+        readbackBuffer.unmap();
+        freeReadbackBuffers.push(readbackBuffer);
+      }));
+    }
+  }
+  await Promise.all(pendingMaps);
+  await device.queue.onSubmittedWorkDone();
+  device.destroy();
+  return { ...adapterSummary, framesRequested: requestedFrameCount, framesWithoutReadback, stampPairs, rafTimes, uncapturedErrors };
+}
+
+runProbe().then(
+  (result) => { window.timestampProbe = { done: true, result }; },
+  (error) => { window.timestampProbe = { done: true, result: { error: String((error && error.stack) || error) } }; },
+);
+</script>
+</body>
+</html>
