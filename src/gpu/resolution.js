@@ -67,6 +67,12 @@ export class DynamicResolutionController {
         this.lastDecisionReason = "start";
     }
 
+    setLimits({ minimumScale = this.minimumScale, maximumScale = this.maximumScale } = {}) {
+        this.minimumScale = minimumScale;
+        this.maximumScale = maximumScale;
+        this.applyScale(this.scale, "limits");
+    }
+
     pin(scaleOrNull) {
         this.pinnedScale = scaleOrNull === null ? null : Math.min(this.maximumScale, Math.max(0.1, scaleOrNull));
         if (this.pinnedScale !== null) {

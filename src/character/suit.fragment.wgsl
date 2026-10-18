@@ -6,11 +6,13 @@
 #include<suitMaterialParameters>
 #include<sceneProxyParameters>
 #include<proceduralNoise>
+#include<waveShape>
 
 var<uniform> frame: FrameUniforms;
 var<uniform> atmosphere: AtmosphereParameters;
 var<uniform> suitMaterial: SuitMaterialParameters;
 var<uniform> sceneProxies: SceneProxyParameters;
+var<uniform> waveParameters: WaveParameters;
 var gargantuaCurrentPatch: texture_2d<f32>;
 var gargantuaCurrentPatchSampler: sampler;
 var gargantuaPreviousPatch: texture_2d<f32>;
@@ -34,6 +36,7 @@ varying vPreviousClip: vec4f;
 #include<gargantuaSampling>
 #include<skyComposite>
 #include<aerialPerspectiveApply>
+#include<waveReflection>
 #include<cloudDeckLighting>
 #include<suitLighting>
 #include<sceneProxyQueries>

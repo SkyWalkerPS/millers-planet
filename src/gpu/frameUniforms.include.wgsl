@@ -15,4 +15,6 @@ struct FrameUniforms {
     gargantuaRightAndTanHalfY: vec4f,
     gargantuaUpAndCrossfade: vec4f,
     gargantuaRadianceScaleAndShadowStrength: vec4f,
+    waveLightingAndHaze: vec4f,
+    underwaterMediumAndDensity: vec4f,
 };

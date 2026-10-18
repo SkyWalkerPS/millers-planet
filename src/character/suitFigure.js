@@ -52,7 +52,22 @@ export const gaitSettings = {
     breathsPerMinute: 15,
     idlePitchEaseRate: 8,
     contactToleranceMetres: 0.01,
+    braceForwardFootMetres: 0.36,
+    braceForwardFootSideMetres: 0.13,
+    braceKneelingFootBackMetres: 0.4,
+    braceKneelingFootSideMetres: 0.12,
+    braceKneelingAnkleHeightMetres: 0.1,
+    braceKneelingFootPitchRadians: 55 * degrees,
+    bracePelvisHeightMetres: 0.52,
+    braceTorsoPitchRadians: 17 * degrees,
+    braceHeadLiftRadians: 34 * degrees,
+    braceFootLiftMetres: 0.1,
 };
+
+function smootherstep(value) {
+    const x = clamp(value, 0, 1);
+    return x * x * x * (x * (x * 6 - 15) + 10);
+}
 
 export const SOLE_POINT_NAMES = ["heel", "mid", "ball", "toe"];
 const soleForwardOffsets = [-suitProportions.heelBehindAnkleMetres, 0.05, suitProportions.ballAheadOfAnkleMetres, suitProportions.toeAheadOfAnkleMetres];
@@ -152,6 +167,9 @@ export class SuitFigure {
         this.kneePositions = new Float64Array(6);
         this.elbowPositions = new Float64Array(6);
         this.lastSpeed = 0;
+        this.braceAmount = 0;
+        this.braceAnkle = new Float64Array(3);
+        this.headBasis = new Float64Array(9);
     }
 
     restSpot(controller, foot, out) {
@@ -531,9 +549,20 @@ export class SuitFigure {
         const lagPhase = this.phase - settings.armLagSeconds * (cadenceStepsPerMinute(this.lastSpeed) / 120);
         const swing = side * settings.armSwingMetres * Math.cos(2 * Math.PI * lagPhase) * this.walkAmount;
         const forward = settings.armForwardMetres + swing;
-        const handX = shoulderX + chest[6] * forward - chest[3] * settings.handDropMetres + chest[0] * side * settings.armOutwardMetres;
-        const handY = shoulderY + chest[7] * forward - chest[4] * settings.handDropMetres + chest[1] * side * settings.armOutwardMetres;
-        const handZ = shoulderZ + chest[8] * forward - chest[5] * settings.handDropMetres + chest[2] * side * settings.armOutwardMetres;
+        let handX = shoulderX + chest[6] * forward - chest[3] * settings.handDropMetres + chest[0] * side * settings.armOutwardMetres;
+        let handY = shoulderY + chest[7] * forward - chest[4] * settings.handDropMetres + chest[1] * side * settings.armOutwardMetres;
+        let handZ = shoulderZ + chest[8] * forward - chest[5] * settings.handDropMetres + chest[2] * side * settings.armOutwardMetres;
+        const brace = smootherstep(this.braceAmount);
+        if (brace > 0) {
+            const kneeX = this.kneePositions[0];
+            const kneeY = this.kneePositions[1];
+            const kneeZ = this.kneePositions[2];
+            const lateral = sideIndex === 0 ? -0.07 : 0.06;
+            const rise = sideIndex === 0 ? 0.07 : 0.11;
+            handX += (kneeX + chest[0] * lateral + chest[6] * 0.02 - handX) * brace;
+            handY += (kneeY + rise - handY) * brace;
+            handZ += (kneeZ + chest[2] * lateral + chest[8] * 0.02 - handZ) * brace;
+        }
         const poleX = -chest[6] + chest[0] * side * 0.55;
         const poleY = -chest[7] + chest[1] * side * 0.55 - 0.35;
         const poleZ = -chest[8] + chest[2] * side * 0.55;
@@ -556,13 +585,39 @@ export class SuitFigure {
         this.writeBone(elbowBone, elbow[0], elbow[1], elbow[2], upperX / upperLength + foreX / foreLength, upperY / upperLength + foreY / foreLength, upperZ / upperLength + foreZ / foreLength, chest[6], chest[7], chest[8]);
     }
 
+    applyBraceToFeet(controller, brace) {
+        const settings = this.settings;
+        const facing = controller.facingYaw;
+        const forwardX = Math.sin(facing);
+        const forwardZ = Math.cos(facing);
+        const rightX = Math.cos(facing);
+        const rightZ = -Math.sin(facing);
+        const target = this.braceAnkle;
+        for (let footIndex = 0; footIndex < 2; footIndex++) {
+            const foot = this.feet[footIndex];
+            const kneeling = footIndex === 1;
+            const along = kneeling ? -settings.braceKneelingFootBackMetres : settings.braceForwardFootMetres;
+            const across = foot.side * (kneeling ? settings.braceKneelingFootSideMetres : settings.braceForwardFootSideMetres);
+            target[0] = controller.positionX + forwardX * along + rightX * across;
+            target[2] = controller.positionZ + forwardZ * along + rightZ * across;
+            target[1] = this.seabedHeightAt(target[0], target[2]) + (kneeling ? settings.braceKneelingAnkleHeightMetres : suitProportions.soleBelowAnkleMetres);
+            const lift = Math.sin(Math.PI * brace) * settings.braceFootLiftMetres * (1 - brace * 0.5);
+            for (let axis = 0; axis < 3; axis++) {
+                foot.ankle[axis] += (target[axis] - foot.ankle[axis]) * brace;
+            }
+            foot.ankle[1] += lift;
+            foot.yaw += wrapAngle(facing - foot.yaw) * brace;
+            foot.pitch += ((kneeling ? settings.braceKneelingFootPitchRadians : 0) - foot.pitch) * brace;
+        }
+    }
+
     update(deltaSeconds, controller) {
         const settings = this.settings;
         const proportions = suitProportions;
         const step = Math.min(Math.max(deltaSeconds, 0), 1 / 30);
         this.eventCount = 0;
         this.timeSeconds += step;
-        if (step > 0) {
+        if (step > 0 && this.braceAmount <= 0) {
             this.updateGait(controller, step);
         } else {
             for (const foot of this.feet) {
@@ -570,6 +625,10 @@ export class SuitFigure {
                     this.plantedPose(foot);
                 }
             }
+        }
+        const brace = smootherstep(this.braceAmount);
+        if (brace > 0) {
+            this.applyBraceToFeet(controller, brace);
         }
         const speed = controller.planarSpeed;
         this.lastSpeed = speed;
@@ -581,7 +640,7 @@ export class SuitFigure {
         const swayToLeft = Math.cos(2 * Math.PI * (this.phase - stanceCentrePhase)) * this.walkAmount;
         const twist = settings.pelvisTwistRadians * Math.cos(cyclePhase) * this.walkAmount;
         const accelerationPitch = clamp(settings.torsoPitchPerAcceleration * controller.forwardAcceleration, -settings.torsoPitchAccelerationLimitRadians, settings.torsoPitchAccelerationLimitRadians);
-        const pelvisPitch = settings.torsoPitchStandingRadians + (settings.torsoPitchWalkingRadians - settings.torsoPitchStandingRadians) * this.walkAmount + accelerationPitch;
+        const pelvisPitch = settings.torsoPitchStandingRadians + (settings.torsoPitchWalkingRadians - settings.torsoPitchStandingRadians) * this.walkAmount + accelerationPitch + settings.braceTorsoPitchRadians * brace;
         const roll = -settings.torsoRollRadians * swayToLeft;
         const basis = composeYawPitchRoll(facing + twist, pelvisPitch * 0.5, roll, this.basis);
         const rightX = Math.cos(facing);
@@ -607,7 +666,8 @@ export class SuitFigure {
             constraint = Math.min(constraint, foot.ankle[1] + vertical - hipOffsetY);
         }
         const nominal = controller.positionY + standingPelvisHeightMetres - settings.kneeBendBelowStandingMetres;
-        const target = Math.min(nominal, constraint);
+        const standingTarget = Math.min(nominal, constraint);
+        const target = standingTarget + (controller.positionY + settings.bracePelvisHeightMetres - standingTarget) * brace;
         stepCriticallyDampedSpring(this.pelvisHeightSpring, target, settings.pelvisSpringFrequency, step);
         if (this.pelvisHeightSpring.position > constraint) {
             this.pelvisHeightSpring.position = constraint;
@@ -651,13 +711,14 @@ export class SuitFigure {
         const neckY = chestY + chest[4] * proportions.neckAboveChestMetres;
         const neckZ = chestZ + chest[5] * proportions.neckAboveChestMetres;
         this.writeBone(BONE_NECK, neckX, neckY, neckZ, chest[3], chest[4], chest[5], chest[6], chest[7], chest[8]);
-        this.writeBone(BONE_HEAD, neckX + chest[3] * proportions.headAboveNeckMetres, neckY + chest[4] * proportions.headAboveNeckMetres, neckZ + chest[5] * proportions.headAboveNeckMetres, chest[3], chest[4], chest[5], chest[6], chest[7], chest[8]);
+        const head = composeYawPitchRoll(facing + this.chestTwist, pelvisPitch - settings.braceHeadLiftRadians * brace, roll * 1.15, this.headBasis);
+        this.writeBone(BONE_HEAD, neckX + head[3] * proportions.headAboveNeckMetres, neckY + head[4] * proportions.headAboveNeckMetres, neckZ + head[5] * proportions.headAboveNeckMetres, head[3], head[4], head[5], head[6], head[7], head[8]);
         this.writeBone(
             BONE_HELMET,
-            neckX + chest[3] * proportions.helmetCentreAboveNeckMetres + chest[6] * proportions.helmetCentreForwardMetres,
-            neckY + chest[4] * proportions.helmetCentreAboveNeckMetres + chest[7] * proportions.helmetCentreForwardMetres,
-            neckZ + chest[5] * proportions.helmetCentreAboveNeckMetres + chest[8] * proportions.helmetCentreForwardMetres,
-            chest[3], chest[4], chest[5], chest[6], chest[7], chest[8],
+            neckX + head[3] * proportions.helmetCentreAboveNeckMetres + head[6] * proportions.helmetCentreForwardMetres,
+            neckY + head[4] * proportions.helmetCentreAboveNeckMetres + head[7] * proportions.helmetCentreForwardMetres,
+            neckZ + head[5] * proportions.helmetCentreAboveNeckMetres + head[8] * proportions.helmetCentreForwardMetres,
+            head[3], head[4], head[5], head[6], head[7], head[8],
         );
         this.poseLeg(0, BONE_THIGH_LEFT, BONE_SHIN_LEFT, BONE_FOOT_LEFT, BONE_KNEE_LEFT);
         this.poseLeg(1, BONE_THIGH_RIGHT, BONE_SHIN_RIGHT, BONE_FOOT_RIGHT, BONE_KNEE_RIGHT);

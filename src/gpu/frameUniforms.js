@@ -13,6 +13,8 @@ const vectorFieldNames = [
     "gargantuaRightAndTanHalfY",
     "gargantuaUpAndCrossfade",
     "gargantuaRadianceScaleAndShadowStrength",
+    "waveLightingAndHaze",
+    "underwaterMediumAndDensity",
 ];
 
 export class FrameUniforms {

@@ -5,6 +5,7 @@
 #include<aerialPerspectiveLayout>
 #include<sceneProxyParameters>
 #include<proceduralNoise>
+#include<waveShape>
 
 uniform world: mat4x4f;
 uniform previousWorld: mat4x4f;
@@ -12,6 +13,7 @@ uniform damageAndWaterLevel: vec4f;
 var<uniform> frame: FrameUniforms;
 var<uniform> atmosphere: AtmosphereParameters;
 var<uniform> sceneProxies: SceneProxyParameters;
+var<uniform> waveParameters: WaveParameters;
 var gargantuaCurrentPatch: texture_2d<f32>;
 var gargantuaCurrentPatchSampler: sampler;
 var gargantuaPreviousPatch: texture_2d<f32>;
@@ -34,6 +36,7 @@ varying vPreviousClip: vec4f;
 #include<gargantuaSampling>
 #include<skyComposite>
 #include<aerialPerspectiveApply>
+#include<waveReflection>
 #include<cloudDeckLighting>
 #include<suitLighting>
 #include<sceneProxyQueries>

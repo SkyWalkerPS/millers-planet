@@ -1,4 +1,5 @@
 struct SuitLightEnvironment {
+    origin: vec3f,
     lightDirection: vec3f,
     directIrradiance: vec3f,
     skyIrradiance: vec3f,
@@ -13,9 +14,10 @@ fn suitLightEnvironment(world: vec3f) -> SuitLightEnvironment {
     let offsetKilometres = vec3f(world.x - frame.cameraPositionAndTime.x, 0.0, world.z - frame.cameraPositionAndTime.z) * 0.001;
     let directFraction = deckDirectLightFraction(surfacePoint + offsetKilometres, cameraPoint, lightDirection, atmosphere);
     var environment: SuitLightEnvironment;
+    environment.origin = world;
     environment.lightDirection = lightDirection;
-    environment.directIrradiance = illuminance * transmittanceToSpace(lightDirection) * directFraction;
-    environment.skyIrradiance = overcastBaseRadiancePerIlluminance(lightDirection, atmosphere) * illuminance * (ATMOSPHERE_PI * atmosphere.deckClearingCoverageInnerOuterOvercast.w * atmosphere.deckAmbientGainAndBakeOriginKilometres.x);
+    environment.directIrradiance = illuminance * transmittanceToSpace(lightDirection) * directFraction * frame.waveLightingAndHaze.x;
+    environment.skyIrradiance = overcastBaseRadiancePerIlluminance(lightDirection, atmosphere) * illuminance * (ATMOSPHERE_PI * atmosphere.deckClearingCoverageInnerOuterOvercast.w * atmosphere.deckAmbientGainAndBakeOriginKilometres.x) * frame.waveLightingAndHaze.y;
     return environment;
 }
 
@@ -29,12 +31,17 @@ fn seaReflectionRadiance(direction: vec3f, environment: SuitLightEnvironment, ga
     let mirrored = normalize(vec3f(direction.x, max(abs(direction.y), 0.01), direction.z));
     let fresnel = waterFresnel(abs(direction.y));
     let body = environment.skyIrradiance * (seaBodyFraction / ATMOSPHERE_PI);
-    return skyRadianceBlurred(mirrored, max(gargantuaLevel, 6.5), max(cloudLevel, 5.5)) * fresnel + body * (1.0 - fresnel);
+    let mirroredSky = applyWaveToReflection(skyRadianceBlurred(mirrored, max(gargantuaLevel, 6.5), max(cloudLevel, 5.5)), environment.origin, mirrored, environment.skyIrradiance, max(gargantuaLevel, 6.5));
+    return mirroredSky * fresnel + body * (1.0 - fresnel);
 }
 
 fn environmentRadiance(direction: vec3f, environment: SuitLightEnvironment, gargantuaLevel: f32, cloudLevel: f32, seaBodyFraction: f32) -> vec3f {
+    let underwater = frame.underwaterMediumAndDensity;
+    if (underwater.w > 0.0) {
+        return underwater.rgb * (0.5 + 1.5 * max(direction.y, 0.0));
+    }
     if (direction.y >= 0.0) {
-        return skyRadianceBlurred(direction, gargantuaLevel, cloudLevel);
+        return applyWaveToReflection(skyRadianceBlurred(direction, gargantuaLevel, cloudLevel), environment.origin, direction, environment.skyIrradiance, gargantuaLevel);
     }
     return seaReflectionRadiance(direction, environment, gargantuaLevel, cloudLevel, seaBodyFraction);
 }

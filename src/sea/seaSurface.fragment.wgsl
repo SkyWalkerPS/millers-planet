@@ -11,11 +11,13 @@
 #include<seaSurfaceParameters>
 #include<sceneProxyParameters>
 #include<proceduralNoise>
+#include<waveShape>
 
 var<uniform> frame: FrameUniforms;
 var<uniform> atmosphere: AtmosphereParameters;
 var<uniform> seaSurface: SeaSurfaceParameters;
 var<uniform> sceneProxies: SceneProxyParameters;
+var<uniform> waveParameters: WaveParameters;
 var gargantuaCurrentPatch: texture_2d<f32>;
 var gargantuaCurrentPatchSampler: sampler;
 var gargantuaPreviousPatch: texture_2d<f32>;
@@ -42,6 +44,7 @@ varying vLagrangian: vec2f;
 #include<gargantuaSampling>
 #include<skyComposite>
 #include<aerialPerspectiveApply>
+#include<waveReflection>
 #include<cloudDeckLighting>
 #include<seabed>
 #include<sceneProxyQueries>
@@ -131,14 +134,14 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let planetRadius = groundRadius(atmosphere);
     let surfacePoint = vec3f(0.0, planetRadius + 0.0005, 0.0);
     let directFraction = deckDirectLightFraction(surfacePoint + vec3f(world.x - frame.cameraPositionAndTime.x, 0.0, world.z - frame.cameraPositionAndTime.z) * 0.001, vec3f(0.0, planetRadius + atmosphere.lightDirectionAndCameraAltitude.w, 0.0), lightDirection, atmosphere);
-    let directIrradiance = illuminance * transmittanceToSpace(lightDirection) * (max(lightDirection.y, 0.0) * directFraction);
-    let skyIrradiance = overcastBaseRadiancePerIlluminance(lightDirection, atmosphere) * illuminance * (ATMOSPHERE_PI * atmosphere.deckClearingCoverageInnerOuterOvercast.w * atmosphere.deckAmbientGainAndBakeOriginKilometres.x);
+    let directIrradiance = illuminance * transmittanceToSpace(lightDirection) * (max(lightDirection.y, 0.0) * directFraction * frame.waveLightingAndHaze.x);
+    let skyIrradiance = overcastBaseRadiancePerIlluminance(lightDirection, atmosphere) * illuminance * (ATMOSPHERE_PI * atmosphere.deckClearingCoverageInnerOuterOvercast.w * atmosphere.deckAmbientGainAndBakeOriginKilometres.x) * frame.waveLightingAndHaze.y;
 
     let refractionIndexInverse = 1.0 / optics.z;
     let bodyNormal = normalize(mix(normal, vec3f(0.0, 1.0, 0.0), 0.5));
     let refracted = refract(-view, bodyNormal, refractionIndexInverse);
     let worldOrigin = seaSurface.worldOriginAndUnused.xy;
-    let waterDepth = max(seabedDepthAt(world.xz + worldOrigin) + surfaceHeight, 0.02);
+    let waterDepth = max(seabedDepthAt(world.xz + worldOrigin) + surfaceHeight + seaSurface.drainLevelFoamFlow.x, 0.02);
     let pathDown = waterDepth / max(-refracted.y, 0.2);
     let bedPosition = world.xz + refracted.xz * pathDown;
     let relief = seabedRippleMarkRelief(bedPosition + worldOrigin, surfaceFootprint);
@@ -181,9 +184,18 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let inWaterLight = (skyIrradiance + directIrradiance * 0.6) / ATMOSPHERE_PI;
     let scatteredInWater = seaSurface.waterScatteringColourAndDepth.xyz * inWaterLight * (vec3f(1.0) - viewTransmittance) * (scattering / max(extinction, vec3f(1e-4)));
     let body = (targetRadiance * viewTransmittance + scatteredInWater) * 0.563;
-    var radiance = body * (1.0 - fresnel) + reflection * fresnel;
+    let reflectionWithWave = applyWaveToReflection(reflection, world, reflected, skyIrradiance, gargantuaLevel);
+    var radiance = body * (1.0 - fresnel) + reflectionWithWave * fresnel;
     let foamRadiance = (skyIrradiance + directIrradiance) * (0.75 / ATMOSPHERE_PI);
-    radiance = mix(radiance, foamRadiance, clamp(ripple.z, 0.0, 1.0) * 0.7);
+    var foam = clamp(ripple.z, 0.0, 1.0);
+    let aftermath = seaSurface.drainLevelFoamFlow.y;
+    if (aftermath > 0.0) {
+        let flow = seaSurface.drainLevelFoamFlow.z;
+        let streamCoordinates = world.xz + worldOrigin + vec2f(0.0, flow);
+        let streaks = trigonometryFreeGradientNoiseTwo(streamCoordinates * vec2f(0.55, 0.16)) * 0.6 + trigonometryFreeGradientNoiseTwo(streamCoordinates * vec2f(2.1, 0.7) + vec2f(5.3, 1.1)) * 0.4;
+        foam = max(foam, smoothstep(0.62 - 0.2 * aftermath, 0.82 - 0.1 * aftermath, streaks * 0.5 + 0.5) * aftermath);
+    }
+    radiance = mix(radiance, foamRadiance, foam * 0.7);
 
     let currentClip = frame.viewProjection * vec4f(world, 1.0);
     let previousClip = frame.previousViewProjection * vec4f(world, 1.0);

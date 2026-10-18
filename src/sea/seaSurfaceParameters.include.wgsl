@@ -12,6 +12,7 @@ struct SeaSurfaceParameters {
     worldOriginAndUnused: vec4f,
     cascadeOriginUvOffsetsFirstSecond: vec4f,
     cascadeOriginUvOffsetsThird: vec4f,
+    drainLevelFoamFlow: vec4f,
 };
 
 fn cascadeOriginUvOffset(cascade: u32) -> vec2f {

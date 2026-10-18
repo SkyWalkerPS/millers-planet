@@ -15,6 +15,9 @@ export class SeaSurface {
         this.centre = [0, 0];
         this.worldOriginX = 0;
         this.worldOriginZ = 0;
+        this.drainLevelMetres = 0;
+        this.aftermathFoam = 0;
+        this.aftermathFlowMetres = 0;
         this.parameters = new UniformBuffer(scene.getEngine(), undefined, false, "seaSurfaceParameters");
         for (const fieldName of [
             "clipmapCentreAndSpacing",
@@ -30,6 +33,7 @@ export class SeaSurface {
             "worldOriginAndUnused",
             "cascadeOriginUvOffsetsFirstSecond",
             "cascadeOriginUvOffsetsThird",
+            "drainLevelFoamFlow",
         ]) {
             this.parameters.addUniform(fieldName, 4);
         }
@@ -84,6 +88,7 @@ export class SeaSurface {
         parameters.updateFloat4("worldOriginAndUnused", this.worldOriginX, this.worldOriginZ, 0, 0);
         parameters.updateFloat4("cascadeOriginUvOffsetsFirstSecond", uvOffsets[0][0], uvOffsets[0][1], uvOffsets[1][0], uvOffsets[1][1]);
         parameters.updateFloat4("cascadeOriginUvOffsetsThird", uvOffsets[2][0], uvOffsets[2][1], 0, 0);
+        parameters.updateFloat4("drainLevelFoamFlow", this.drainLevelMetres, this.aftermathFoam, this.aftermathFlowMetres, 0);
         parameters.updateFloat4("seabedRippleMarks", settings.seabedRippleMarkAmplitudeMetres, settings.seabedRippleMarkWavelengthMetres, waveTravelX / waveTravelLength, waveTravelZ / waveTravelLength);
         parameters.update();
     }

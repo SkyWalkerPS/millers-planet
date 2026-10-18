@@ -28,7 +28,7 @@ export const defaultSuitLook = {
     seaBounceFraction: 0.06,
     visorTint: [0.06, 0.05, 0.04],
     visorRoughness: 0.03,
-    visorBaseReflectance: [0.62, 0.53, 0.38],
+    visorBaseReflectance: [0.62, 0.57, 0.48],
 };
 
 function createSkinnedMesh(name, scene, geometry, material) {

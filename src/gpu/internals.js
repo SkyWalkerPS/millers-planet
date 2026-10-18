@@ -44,17 +44,33 @@ export function readRenderPipelinesCreatedLastFrame() {
 }
 
 export function installPipelineCreationCounters(device) {
-    const counters = { renderPipelinesCreated: 0, computePipelinesCreated: 0 };
+    const counters = { renderPipelinesCreated: 0, computePipelinesCreated: 0, recentRenderPipelines: [] };
+    const describe = (descriptor) => ({
+        label: descriptor.label ?? null,
+        vertex: descriptor.vertex?.module?.label ?? null,
+        fragment: descriptor.fragment?.module?.label ?? null,
+        targets: (descriptor.fragment?.targets ?? []).map((target) => `${target.format}${target.blend ? "+blend" : ""}`),
+        depth: descriptor.depthStencil ? `${descriptor.depthStencil.format} ${descriptor.depthStencil.depthCompare} write ${descriptor.depthStencil.depthWriteEnabled}` : null,
+        cull: descriptor.primitive?.cullMode ?? null,
+    });
+    const remember = (descriptor) => {
+        counters.recentRenderPipelines.push(describe(descriptor));
+        if (counters.recentRenderPipelines.length > 12) {
+            counters.recentRenderPipelines.shift();
+        }
+    };
     const originalCreateRenderPipeline = device.createRenderPipeline.bind(device);
     const originalCreateRenderPipelineAsync = device.createRenderPipelineAsync.bind(device);
     const originalCreateComputePipeline = device.createComputePipeline.bind(device);
     const originalCreateComputePipelineAsync = device.createComputePipelineAsync.bind(device);
     device.createRenderPipeline = (descriptor) => {
         counters.renderPipelinesCreated++;
+        remember(descriptor);
         return originalCreateRenderPipeline(descriptor);
     };
     device.createRenderPipelineAsync = (descriptor) => {
         counters.renderPipelinesCreated++;
+        remember(descriptor);
         return originalCreateRenderPipelineAsync(descriptor);
     };
     device.createComputePipeline = (descriptor) => {

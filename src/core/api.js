@@ -1,3 +1,5 @@
+import { measureWaveShapeParity } from "../debug/waveShapeParity.js";
+
 export function installPageApi() {
     let resolveReady;
     let rejectReady;
@@ -23,11 +25,17 @@ export function installPageApi() {
             return requireApplication().resolution.currentScale;
         },
         setAllocationPolicy: (policy) => requireApplication().beautyTargets.setAllocationPolicy(policy),
+        setResolutionLimits: (limits = {}) => {
+            const resolution = requireApplication().resolution;
+            resolution.setLimits(limits);
+            return { minimumScale: resolution.minimumScale, maximumScale: resolution.maximumScale, scale: resolution.currentScale };
+        },
         requestPreemptiveCut: (fraction = 0.05, reason = "api") => requireApplication().resolution.requestPreemptiveCut(fraction, reason),
         setHeavyPatternIterations: (iterations) => {
             requireApplication().testScene.heavyPatternIterations = iterations;
         },
         clearGpuErrors: () => requireApplication().gpuErrors.clear(),
+        waveShapeParity: (lateralMetres) => measureWaveShapeParity(requireApplication(), lateralMetres),
         setAstronautPosition: ({ x = 0, z = 0, yawDegrees = 0, cameraYawDegrees = yawDegrees } = {}) => {
             const app = requireApplication();
             app.placeAstronaut(x, z, (yawDegrees * Math.PI) / 180, (cameraYawDegrees * Math.PI) / 180);
@@ -100,8 +108,8 @@ export function installPageApi() {
             app.viewPreset = presetIndex;
             return presetIndex;
         },
-        skipTo() {
-            throw new Error("skipTo arrives with the wave in phase 7");
+        skipTo(options = {}) {
+            return requireApplication().skipTo(options);
         },
         setShipState(state) {
             return requireApplication().setShipState(state);

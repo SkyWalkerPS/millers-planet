@@ -52,7 +52,7 @@ fn main(input: VertexInputs) -> FragmentInputs {
     }
     displacement.y += rippleHeightAt(lagrangian, placement.spacing);
     let curvatureDrop = dot(fromCamera, fromCamera) / (2.0 * shape.w);
-    let world = vec3f(lagrangian.x + displacement.x, shape.z + displacement.y - curvatureDrop, lagrangian.y + displacement.z);
+    let world = vec3f(lagrangian.x + displacement.x, shape.z + seaSurface.drainLevelFoamFlow.x + displacement.y - curvatureDrop, lagrangian.y + displacement.z);
     vertexOutputs.position = frame.jitteredViewProjection * vec4f(world, 1.0);
     vertexOutputs.vWorldPosition = world;
     vertexOutputs.vLagrangian = lagrangian;

@@ -25,7 +25,7 @@ const CHECK_TITLES = {
   17: 'the console stays clean',
 };
 const CHECK_PHASES = { 1: 2, 2: 6, 3: 6, 4: 2, 5: 2, 6: 2, 7: 2, 8: 5, 9: 5, 10: 5, 11: 5, 12: 5, 13: 5, 14: 7, 15: 2, 16: 6, 17: 2 };
-const NOT_WRITTEN_YET = new Set([14]);
+const NOT_WRITTEN_YET = new Set([]);
 const WHEEL_EVENT_GAP_MS = 16;
 const SETTLE_AFTER_BLOCK_MS = 200;
 const DISTANCE_TOLERANCE_METRES = 1e-3;
@@ -534,7 +534,51 @@ try {
       record(13, problems.length === 0, problems.length ? problems.join('; ') : 'Space, E, F, Q, R, V, Ctrl and a right-click left the astronaut and the camera unchanged');
     }
 
-    for (const number of [14]) if (shouldRun(number)) record(number, false, `not written yet: this check arrives with phase ${CHECK_PHASES[number]}`);
+    if (shouldRun(14)) {
+      const problems = [];
+      const readWave = () => page.evaluate(pageExpression(`(() => {
+        const stats = window.millersPlanet.stats();
+        return { preset: stats.camera.preset, scripted: stats.camera.scriptedWeight, locked: stats.astronaut.inputLocked, braced: stats.astronaut.braced, position: stats.astronaut.position, phase: stats.wave.phase, index: stats.wave.index };
+      })()`));
+      let start = await readWave();
+      for (let presses = 0; presses < 3 && start.preset !== 1; presses++) {
+        await page.keyPress('KeyC', { holdMs: 40, afterMs: 900 });
+        start = await readWave();
+      }
+      if (start.preset !== 1) problems.push(`could not select preset 1 with C (preset ${start.preset})`);
+      await page.evaluate(pageExpression(`window.millersPlanet.skipTo({ waveIndex: 1, phase: 'b', secondsIntoPhase: 0.2 })`));
+      await sleep(1700);
+      const braced = await readWave();
+      if (braced.phase !== 'brace') problems.push(`skipTo landed in phase ${braced.phase}, not brace`);
+      if (!braced.locked) problems.push('input is not locked during the brace');
+      if (!braced.braced) problems.push('the astronaut is not braced 1.5 s into the brace');
+      if (braced.scripted < 0.9) problems.push(`the scripted camera weight is ${braced.scripted.toFixed(2)} 1.5 s into the brace (expected near 1)`);
+      await page.keyDown('KeyW');
+      await sleep(800);
+      await page.keyUp('KeyW');
+      const afterPush = await readWave();
+      const pushed = horizontalMove(braced, afterPush).distance;
+      if (pushed > 0.01) problems.push(`W moved the braced astronaut ${pushed.toFixed(3)} m`);
+      await page.evaluate(pageExpression(`window.millersPlanet.skipTo({ waveIndex: 1, phase: 'd', secondsIntoPhase: 5.7 })`));
+      await sleep(1300);
+      const after = await readWave();
+      if (after.locked) problems.push(`input is still locked after the drain (phase ${after.phase})`);
+      if (after.scripted > 0.001) problems.push(`the scripted camera is still blended in after the drain (weight ${after.scripted.toFixed(3)})`);
+      if (after.preset !== 1) problems.push(`the preset after the wave is ${after.preset}, not the player's 1`);
+      if (after.braced) problems.push('the astronaut is still braced after the drain');
+      await page.keyDown('KeyW');
+      await sleep(1200);
+      await page.keyUp('KeyW');
+      const walked = horizontalMove(after, await readWave()).distance;
+      if (walked < 0.3) problems.push(`W moved the astronaut only ${walked.toFixed(2)} m after the wave`);
+      await page.evaluate(pageExpression(`window.millersPlanet.skipTo({ waveIndex: 2, phase: 'calm', secondsIntoPhase: 1 })`));
+      for (let presses = 0; presses < 3; presses++) {
+        const state = await readWave();
+        if (state.preset === 0) break;
+        await page.keyPress('KeyC', { holdMs: 40, afterMs: 900 });
+      }
+      record(14, problems.length === 0, problems.length ? problems.join('; ') : `brace: input locked, braced, scripted camera weight ${braced.scripted.toFixed(2)}, W moved ${pushed.toFixed(3)} m; after the drain: unlocked, scripted weight ${after.scripted.toFixed(3)}, preset ${after.preset} restored, W walked ${walked.toFixed(2)} m`);
+    }
 
     if (shouldRun(15)) {
       const problems = [];

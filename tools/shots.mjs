@@ -6,6 +6,7 @@ export const SHOT_KINDS = {
   afterReload: 'the first frame after page.reload()',
   framePair: 'two consecutive frames (needs a later shoot.mjs feature)',
   sequence: 'a frame sequence (needs a later hero-clip tool)',
+  byTool: 'made by another tool (named in madeBy), not by shoot.mjs',
 };
 
 const shipStateShots = [0, 1, 2, 3, 4].map((state) => ({
@@ -19,7 +20,8 @@ const shipStateShots = [0, 1, 2, 3, 4].map((state) => ({
 const shipFromImpactShots = [1, 2, 3, 4].map((waveCount) => ({
   name: `ship-${waveCount}-from-impact`,
   phase: 7,
-  kind: 'still',
+  kind: 'byTool',
+  madeBy: 'tools/wave-run.mjs',
   waveSecondsFromImpact: 15,
   expectedCrops: ['ship'],
   description: `The relocated ship after wave ${waveCount}, seen from the impact position through the haze`,
@@ -48,7 +50,7 @@ export const SHOTS = [
   { name: 'astro-first', phase: 5, kind: 'still', setup: [['setViewPreset', 2]], benchmarkByDefault: true, description: 'First-person preset with the faint helmet rim' },
   { name: 'visor-front-gargantua', phase: 5, kind: 'still', expectedCrops: ['visor'], benchmarkByDefault: true, description: 'Camera in front, astronaut facing Gargantua; visor crop' },
   { name: 'walk-ripples', phase: 5, kind: 'still', settleFrames: 240, description: 'Mid-walk, close preset; ripples at the shins (240 settle frames so all 198 footstep stamps of the scripted walk land)' },
-  { name: 'walk-splash', phase: 5, kind: 'still', description: 'Mid-walk, close preset; white water at the shins' },
+  { name: 'walk-splash', phase: 7, kind: 'still', settleFrames: 240, description: 'Mid-walk with Shift, close preset from the side: wake and foam at the shins (droplets deferred to phase 8)' },
 
   { name: 'hud', phase: 6, kind: 'still', description: 'Full frame with the clocks' },
   ...shipStateShots,
@@ -67,7 +69,7 @@ export const SHOTS = [
   { name: 'wave-d-drain', phase: 7, kind: 'still', waveSecondsFromImpact: 8, description: 'T+8, the water draining' },
   { name: 'wave-after', phase: 7, kind: 'still', waveSecondsFromImpact: 15, description: 'T+15, control back' },
   ...shipFromImpactShots,
-  { name: 'hero-clip', phase: 7, alsoPhases: [9], kind: 'sequence', waveSecondsFromImpact: -22, description: 'T-22 to T+8 at 60 fps on a virtual clock (hero-clip tool, later)' },
+  { name: 'hero-clip', phase: 9, kind: 'sequence', waveSecondsFromImpact: -22, description: 'T-22 to T+8 at 60 fps on a virtual clock (hero-clip tool, later)' },
 ];
 
 const duplicateNames = SHOTS.map((shot) => shot.name).filter((name, index, names) => names.indexOf(name) !== index);

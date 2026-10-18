@@ -52,7 +52,16 @@ export const FLIGHT_TIMELINES = {
       { untilSeconds: 30, label: 'wave off, third-person sweep', from: orbitPose(300, 3, 3.2, 1.45), to: orbitPose(420, 8, 3.2, 1.45), systems: { waveReservation: false } },
     ],
   },
-  wave: { phase: 7, stub: 'The "wave" flight is not written yet. It arrives with phase 7 (the wave timeline, plan section 8.7). Use FLIGHT=empty for now.' },
+  wave: {
+    phase: 7,
+    summary: 'phase 7: the first wave from T-22 to T+8 in player mode: walking toward the wall, looking up and around at the crest, then the locked brace with the scripted camera, the underwater pass and the drain',
+    setup: [['debug.enterPlayerMode'], ['debug.setAstronautPosition', { x: 0, z: 0, yawDegrees: 0 }], ['skipTo', { waveIndex: 1, phase: 'impact', secondsIntoPhase: -25 }]],
+    segments: [
+      { untilSeconds: 6, label: 'walk toward the wall (W), about T-22 to T-16', input: { keys: ['KeyW'] } },
+      { untilSeconds: 12, label: 'stop, look up and around at the crest, about T-16 to T-10', input: { keys: [], mouseCountsPerSecond: [260, -90] } },
+      { untilSeconds: 30, label: 'brace, underwater and drain (input locked from T-8)', input: { keys: [] } },
+    ],
+  },
   walk: {
     phase: 5,
     summary: 'phase 5: the astronaut in player mode driven by injected keys and mouse: walking, orbiting the camera while walking, Shift, stopping, the close and first-person presets, a turn back toward the camera, and looking up at Gargantua',
@@ -244,6 +253,7 @@ function formatVerdictTable(analysis) {
 }
 
 const hudHidden = process.env.HUD === '0';
+const maximumScaleCap = process.env.MAX_SCALE ? Number(process.env.MAX_SCALE) : null;
 
 async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumber, verbose }) {
   const gpuLoad = await checkGpuLoad();
@@ -257,6 +267,9 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
     if (!hasOrbitCamera) throw new Error('millersPlanet.debug.setOrbitCamera is missing, so the flight cannot drive the camera');
     for (const [method, ...methodArguments] of timeline.setup ?? []) {
       await page.evaluate(`window.millersPlanet.${method}(...${JSON.stringify(methodArguments)})`);
+    }
+    if (maximumScaleCap !== null) {
+      await page.evaluate(`window.millersPlanet.debug.setResolutionLimits(${JSON.stringify({ maximumScale: maximumScaleCap, minimumScale: Math.min(0.5, maximumScaleCap * 0.7) })})`);
     }
     await page.evaluate('window.millersPlanet.freezeTime(null)');
     if (!timeline.segments[0].input) await jumpCamera(page, timeline.segments[0].from);
@@ -351,6 +364,7 @@ if (isMainModule) {
   const phase = Number(process.env.PHASE || timeline.phase);
   const verbose = process.env.VERBOSE === '1';
 
+  if (maximumScaleCap !== null) console.log(`Diagnostic run: the resolution controller is capped at scale ${maximumScaleCap} (MAX_SCALE), so the scale rules cannot pass by design.`);
   printBrowserPaneReminder();
   const machine = await runMachineChecks({ framesMustBePaced: true });
   printChecks(machine.checks, 'Preflight');
@@ -393,7 +407,7 @@ if (isMainModule) {
       if (run.pageErrors.length) console.log(`  page errors:\n${run.pageErrors.map((line) => `    ${line}`).join('\n')}`);
       const evidencePath = path.join(evidenceDirectory(), `${phase}-flight${hudHidden ? '-hud-off' : ''}-run${runNumber}.json`);
       mkdirSync(path.dirname(evidencePath), { recursive: true });
-      writeFileSync(evidencePath, JSON.stringify({ tool: 'flight.mjs', flight: flightName, createdAt: new Date().toISOString(), passRule: FLIGHT_PASS_RULE, preflight: machine.checks, ...run }, null, 1));
+      writeFileSync(evidencePath, JSON.stringify({ tool: 'flight.mjs', flight: flightName, createdAt: new Date().toISOString(), passRule: FLIGHT_PASS_RULE, maximumScaleCap, preflight: machine.checks, ...run }, null, 1));
       console.log(`  wrote ${evidencePath}`);
     }
   } finally {

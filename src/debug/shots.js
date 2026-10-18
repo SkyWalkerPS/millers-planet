@@ -41,6 +41,29 @@ function visorFrontCameraPose(figure, controller) {
     };
 }
 
+function walkSplashCameraPose(figure, controller) {
+    const facing = controller.facingYaw;
+    const forwardX = Math.sin(facing);
+    const forwardZ = Math.cos(facing);
+    const rightX = Math.cos(facing);
+    const rightZ = -Math.sin(facing);
+    const targetX = controller.positionX + forwardX * 0.25;
+    const targetY = 0.25;
+    const targetZ = controller.positionZ + forwardZ * 0.25;
+    const cameraX = controller.positionX + forwardX * 1.1 + rightX * 2.0;
+    const cameraY = 0.85;
+    const cameraZ = controller.positionZ + forwardZ * 1.1 + rightZ * 2.0;
+    const towardX = targetX - cameraX;
+    const towardY = targetY - cameraY;
+    const towardZ = targetZ - cameraZ;
+    return {
+        position: [cameraX, cameraY, cameraZ],
+        yawRadians: Math.atan2(towardX, towardZ),
+        pitchRadians: Math.atan2(towardY, Math.hypot(towardX, towardZ)),
+        verticalFieldOfViewDegrees: 50,
+    };
+}
+
 function walkRipplesCameraPose(figure, controller) {
     const facing = controller.facingYaw;
     const forwardX = Math.sin(facing);
@@ -78,6 +101,28 @@ function shipStateShot(state) {
     };
 }
 
+
+function waveApproachShot(timeSeconds, cameraPitchDegrees = null, playerOptions = {}) {
+    return {
+        phase: 7,
+        hiddenSystems: ["testGeometry"],
+        shownSystems: ["wave"],
+        timeSeconds,
+        verticalFieldOfViewDegrees: 56,
+        ship: "opening",
+        player: { preset: 0, x: 0, z: 0, yawRadians: openingYawRadians, cameraYawRadians: openingYawRadians, cameraPitchRadians: cameraPitchDegrees === null ? null : cameraPitchDegrees * degreesToRadians, ...playerOptions },
+    };
+}
+
+function waveChoreographyShot(timeSeconds, cropAroundHelmet = null) {
+    const shot = waveApproachShot(timeSeconds);
+    shot.depthOfField = false;
+    shot.player = { ...shot.player, waveChoreography: true };
+    if (cropAroundHelmet) {
+        shot.player.cropAroundHelmet = cropAroundHelmet;
+    }
+    return shot;
+}
 
 export const shotDefinitions = {
     empty: {
@@ -166,6 +211,14 @@ export const shotDefinitions = {
         verticalFieldOfViewDegrees: 50,
         player: { preset: 1, x: 0, z: 0, yawRadians: gargantuaAzimuthRadians + 1.1, cameraYawRadians: gargantuaAzimuthRadians + 1.1, walkSeconds: 3.3, moveForward: 1, cameraPose: walkRipplesCameraPose },
     },
+    "walk-splash": {
+        phase: 7,
+        hiddenSystems: ["testGeometry"],
+        depthOfField: false,
+        timeSeconds: 10,
+        verticalFieldOfViewDegrees: 50,
+        player: { preset: 1, x: 0, z: 0, yawRadians: gargantuaAzimuthRadians + 1.1, cameraYawRadians: gargantuaAzimuthRadians + 1.1, walkSeconds: 2.75, moveForward: 1, shift: true, cameraPose: walkSplashCameraPose },
+    },
     "ship-0": shipStateShot(0),
     "ship-1": shipStateShot(1),
     "ship-2": shipStateShot(2),
@@ -188,6 +241,15 @@ export const shotDefinitions = {
         ship: "opening",
         player: { preset: 0, x: 0, z: 0, yawRadians: openingYawRadians, cameraYawRadians: openingYawRadians },
     },
+    "wave-a-far": waveApproachShot(240),
+    "wave-a-move": waveApproachShot(241),
+    "wave-a-near": waveApproachShot(270),
+    "crest-backlit": waveApproachShot(280, 6, { cropWaveCrestAndFace: true }),
+    "wave-b-brace": waveChoreographyShot(295),
+    "visor-front-wave": waveChoreographyShot(298, 0.32),
+    "wave-c-underwater": waveChoreographyShot(302),
+    "wave-d-drain": waveChoreographyShot(308),
+    "wave-after": waveChoreographyShot(315),
     "camera-collide-ship": {
         phase: 6,
         hiddenSystems: ["testGeometry"],

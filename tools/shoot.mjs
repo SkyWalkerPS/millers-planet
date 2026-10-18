@@ -38,6 +38,10 @@ try {
   const orderedShots = [...shots.filter((shot) => shot.kind === 'freshLoad'), ...shots.filter((shot) => shot.kind !== 'freshLoad')];
   let pageIsFresh = true;
   for (const shot of orderedShots) {
+    if (shot.kind === 'byTool') {
+      console.log(`${shot.name}: made by ${shot.madeBy}, skipped here`);
+      continue;
+    }
     try {
       if (shot.kind === 'framePair' || shot.kind === 'sequence') {
         throw new Error(`shot kind "${shot.kind}" (${SHOT_KINDS[shot.kind]}) is not supported by shoot.mjs yet`);

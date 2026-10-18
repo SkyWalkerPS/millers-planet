@@ -85,6 +85,19 @@ const MEASURE_REGION_FUNCTION = `(left, top, width, height) => {
   };
 }`;
 
+export async function measureImageRegions(imagePath, regions, cssWidth = 1728) {
+  return withImageWorkbench([imagePath], async ({ page, imageUrl }) => {
+    const size = await page.evaluateFunction(LOAD_IMAGE_FUNCTION, [imageUrl(0)], { timeoutMs: 60000 });
+    const measured = [];
+    for (const region of regions) {
+      const pixels = regionToPixels(region, size.width, size.height, cssWidth);
+      const sums = await page.evaluateFunction(MEASURE_REGION_FUNCTION, [pixels.left, pixels.top, pixels.width, pixels.height], { timeoutMs: 60000 });
+      measured.push({ name: region.name, pixels, ...sums, ...colourStatistics(sums.meanEncoded, sums.meanLinear) });
+    }
+    return { size, measured };
+  });
+}
+
 const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMainModule) {
   let parsed;
@@ -110,21 +123,13 @@ if (isMainModule) {
       if (names.length !== 2 || !names.every((name) => regions.some((region) => region.name === name))) throw new Error(`--contrast ${text} must name two regions given with --region`);
       return names;
     });
-    const report = await withImageWorkbench([imagePath], async ({ page, imageUrl }) => {
-      const size = await page.evaluateFunction(LOAD_IMAGE_FUNCTION, [imageUrl(0)], { timeoutMs: 60000 });
-      const measured = [];
-      for (const region of regions) {
-        const pixels = regionToPixels(region, size.width, size.height, cssWidth);
-        const sums = await page.evaluateFunction(MEASURE_REGION_FUNCTION, [pixels.left, pixels.top, pixels.width, pixels.height], { timeoutMs: 60000 });
-        measured.push({ name: region.name, pixels, ...sums, ...colourStatistics(sums.meanEncoded, sums.meanLinear) });
-      }
-      const contrasts = contrastPairs.map(([first, second]) => {
-        const a = measured.find((entry) => entry.name === first);
-        const b = measured.find((entry) => entry.name === second);
-        return { regions: [first, second], contrastLinear: (a.luminanceLinear - b.luminanceLinear) / b.luminanceLinear, contrastEncoded: (a.lumaEncoded - b.lumaEncoded) / b.lumaEncoded };
-      });
-      return { image: imagePath, size, cssWidth, regions: measured, contrasts };
+    const { size, measured } = await measureImageRegions(imagePath, regions, cssWidth);
+    const contrasts = contrastPairs.map(([first, second]) => {
+      const a = measured.find((entry) => entry.name === first);
+      const b = measured.find((entry) => entry.name === second);
+      return { regions: [first, second], contrastLinear: (a.luminanceLinear - b.luminanceLinear) / b.luminanceLinear, contrastEncoded: (a.lumaEncoded - b.lumaEncoded) / b.lumaEncoded };
     });
+    const report = { image: imagePath, size, cssWidth, regions: measured, contrasts };
     if (flags.json) {
       console.log(JSON.stringify(report, null, 1));
     } else {
