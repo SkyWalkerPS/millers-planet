@@ -42,9 +42,9 @@ On a phone or tablet:
 
 | Touch | Action |
 |---|---|
-| Drag on the left half and hold | A floating virtual joystick appears where your thumb lands; the astronaut walks in the direction you drag and keeps going while you hold. Partial drags walk slower |
-| Drag past the ring | Wade faster, like Shift |
-| Drag on the right half | Look around (turn and tilt the camera) |
+| Drag inside the circle at the bottom centre, and hold | A fixed virtual joystick: the astronaut walks in the direction you drag and keeps going while you hold. Partial drags walk slower |
+| Drag past the circle's edge | Wade faster, like Shift |
+| Drag anywhere else | Look around (turn and tilt the camera) |
 | View button | Cycle the three views, like C |
 
 On tall, narrow screens the camera widens its view and centres the astronaut, so the whole figure and Gargantua stay in frame.

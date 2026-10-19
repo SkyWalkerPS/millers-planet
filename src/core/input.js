@@ -1,6 +1,5 @@
-import { TouchControls, joystickRadiusPixels, runBeyondJoystickRadiusFraction } from "../hud/touchControls.js";
+import { TouchControls, runBeyondJoystickRadiusFraction } from "../hud/touchControls.js";
 
-const joystickBaseFollowsBeyondFraction = 2.2;
 const touchLookCountsPerPixel = 4;
 
 export class InputState {
@@ -14,7 +13,8 @@ export class InputState {
         this.wheelEventsSeen = 0;
         this.wheelEventsPrevented = 0;
         this.pressedKeyQueue = [];
-        this.touchMove = { pointerId: null, originX: 0, originY: 0, moveRight: 0, moveForward: 0, run: false };
+        this.audioStartError = null;
+        this.touchMove = { pointerId: null, originX: 0, originY: 0, radius: 1, moveRight: 0, moveForward: 0, run: false };
         this.touchLook = { pointerId: null, lastX: 0, lastY: 0 };
         this.touchControls = typeof document === "undefined" ? null : new TouchControls(document.body, { onViewButton: () => this.pressedKeyQueue.push("KeyC") });
         this.handlePointerDown = (event) => {
@@ -83,6 +83,9 @@ export class InputState {
         canvas.addEventListener("pointermove", this.handlePointerMove);
         canvas.addEventListener("pointerup", this.handlePointerEnd);
         canvas.addEventListener("pointercancel", this.handlePointerEnd);
+        canvas.addEventListener("lostpointercapture", this.handlePointerEnd);
+        window.addEventListener("pointerup", this.handlePointerEnd);
+        window.addEventListener("pointercancel", this.handlePointerEnd);
         document.addEventListener("pointerlockchange", this.handlePointerLockChange);
         window.addEventListener("keydown", this.handleKeyDown);
         window.addEventListener("keyup", this.handleKeyUp);
@@ -104,19 +107,27 @@ export class InputState {
 
     beginTouch(event) {
         event.preventDefault();
-        this.audioSystem.startOnUserGesture();
-        this.touchControls?.dismissHint();
-        const onLeftHalf = event.clientX < window.innerWidth * 0.5;
-        if (onLeftHalf && this.touchMove.pointerId === null) {
+        const joystickCircle = this.touchControls?.joystickCircleContaining(event.clientX, event.clientY) ?? null;
+        if (joystickCircle) {
             const move = this.touchMove;
             move.pointerId = event.pointerId;
-            move.originX = event.clientX;
-            move.originY = event.clientY;
+            move.originX = joystickCircle.x;
+            move.originY = joystickCircle.y;
+            move.radius = joystickCircle.radius;
             this.updateTouchMove(event.clientX, event.clientY);
-        } else if (this.touchLook.pointerId === null) {
+        } else {
             this.touchLook.pointerId = event.pointerId;
             this.touchLook.lastX = event.clientX;
             this.touchLook.lastY = event.clientY;
+        }
+        this.startAudioWithoutBreakingInput();
+    }
+
+    startAudioWithoutBreakingInput() {
+        try {
+            this.audioSystem.startOnUserGesture();
+        } catch (error) {
+            this.audioStartError = String(error);
         }
     }
 
@@ -135,36 +146,30 @@ export class InputState {
     }
 
     endTouch(event) {
-        this.audioSystem.startOnUserGesture();
         if (event.pointerId === this.touchMove.pointerId) {
             this.releaseTouchMove();
         } else if (event.pointerId === this.touchLook.pointerId) {
             this.touchLook.pointerId = null;
         }
+        if (event.type === "pointerup") {
+            this.startAudioWithoutBreakingInput();
+        }
     }
 
     updateTouchMove(thumbX, thumbY) {
         const move = this.touchMove;
-        let offsetX = thumbX - move.originX;
-        let offsetY = thumbY - move.originY;
-        const followDistance = joystickRadiusPixels * joystickBaseFollowsBeyondFraction;
-        const thumbDistance = Math.hypot(offsetX, offsetY);
-        if (thumbDistance > followDistance) {
-            const pullFraction = (thumbDistance - followDistance) / thumbDistance;
-            move.originX += offsetX * pullFraction;
-            move.originY += offsetY * pullFraction;
-            offsetX = thumbX - move.originX;
-            offsetY = thumbY - move.originY;
-        }
-        const reach = Math.hypot(offsetX, offsetY) / joystickRadiusPixels;
+        const offsetX = thumbX - move.originX;
+        const offsetY = thumbY - move.originY;
+        const reach = Math.hypot(offsetX, offsetY) / move.radius;
         const deflection = Math.min(1, reach);
         const directionScale = reach > 0 ? deflection / reach : 0;
-        move.moveRight = (offsetX / joystickRadiusPixels) * directionScale;
-        move.moveForward = (-offsetY / joystickRadiusPixels) * directionScale;
+        move.moveRight = (offsetX / move.radius) * directionScale;
+        move.moveForward = (-offsetY / move.radius) * directionScale;
         move.run = reach > runBeyondJoystickRadiusFraction;
-        const knobX = move.originX + move.moveRight * joystickRadiusPixels;
-        const knobY = move.originY - move.moveForward * joystickRadiusPixels;
-        this.touchControls?.showJoystick(move.originX, move.originY, knobX, knobY, move.run);
+        if (reach > 0.3) {
+            this.touchControls?.dismissHint();
+        }
+        this.touchControls?.setKnobOffset(move.moveRight * move.radius, -move.moveForward * move.radius, move.run);
     }
 
     releaseTouchMove() {
@@ -173,7 +178,7 @@ export class InputState {
         move.moveRight = 0;
         move.moveForward = 0;
         move.run = false;
-        this.touchControls?.hideJoystick();
+        this.touchControls?.resetKnob();
     }
 
     isHeld(code) {
