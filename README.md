@@ -1,6 +1,6 @@
 # Miller's Planet
 
-A walkable, real-time recreation of the water planet from *Interstellar*, running in the browser on WebGPU. You wade as an astronaut through ankle-deep water that runs to the horizon, under a hazy overcast sky, with the black hole Gargantua hanging huge above the sea and a landed ship nearby. Every four minutes a wave more than two kilometres tall rolls in from Gargantua's direction, its thin crest glowing turquoise with the light behind it. You brace, it passes over, you spend a few seconds under water looking up through Snell's window, the water drains, and the walk goes on. Two clocks in the corner show time on the planet and on Earth, where it runs 61,362 times faster. It is built with [Babylon.js](https://www.babylonjs.com/) 9.18 and hand-written WGSL shaders, and everything you see and hear is generated in code: there are no texture, model, animation or sound files.
+A walkable, real-time recreation of the water planet from *Interstellar*, running in the browser on WebGPU. You wade as an astronaut through ankle-deep water that runs to the horizon, under a hazy overcast sky, with the black hole Gargantua hanging huge above the sea and a landed ship nearby. Every four minutes a wave more than two kilometres tall rolls in from Gargantua's direction, its thin crest glowing turquoise with the light behind it. You brace, it passes over, you spend a few seconds under water looking up through Snell's window, the water drains, and the walk goes on. Two clocks in the corner show time on the planet and on Earth, where it runs 61,362 times faster, and a box beside them counts down to the next wave. It is built with [Babylon.js](https://www.babylonjs.com/) 9.18 and hand-written WGSL shaders, and everything you see and hear is generated in code: there are no texture, model, animation or sound files.
 
 **Built on the work of Noniv (Maksymilian Dendura):** the character, sea, sky and post-processing techniques come from his [snowflow_demo](https://github.com/Noniv/snowflow_demo) and [web-ocean](https://github.com/Noniv/web-ocean) (both MIT). See [Credits](#credits).
 
@@ -48,7 +48,7 @@ URL parameters, mainly for testing:
 | `?time=220` | Freeze the clock at a time in seconds (the first wave hits at 240) |
 | `?shot=crest-backlit` | Jump to a named camera shot (the list is in `tools/shots.mjs`) |
 | `?systems=-wave,-ship` | Switch systems off: `sea`, `wave`, `astronaut`, `ship`, `gargantua`, `atmosphere`, `bloom`, `shafts`, `temporalUpscale`, `jitter` |
-| `?hud=0` | Hide the clocks |
+| `?hud=0` | Hide the clocks and the wave countdown |
 
 The page also exposes `window.millersPlanet` (stats, shots, frame timings, a time skip), which the test tools in `tools/` drive.
 
@@ -96,7 +96,7 @@ Single-precision floats lose detail far from the origin, so once you are 1 km fr
 
 ### Clocks and sound
 
-The clocks show Miller time (hours, minutes, seconds) and Earth time (years, days, hours, minutes) at the film's ratio of 61,362. The sound is generated with Web Audio from noise and simple oscillators: the sea, wading splashes, the rising roar of the wave, the muffle and bubbles under water.
+The clocks show Miller time (hours, minutes, seconds) and Earth time (years, days, hours, minutes) at the film's ratio of 61,362. A second box to their right shows the number of the next wave and a minutes-and-seconds countdown to its impact; it reads "now" from the impact until the next wave appears. Time follows the real clock even while the tab is hidden: the browser stops drawing a hidden tab, and when you come back the clock catches up by the time you were away, so the waves keep their schedule (a wave may have passed while you were gone). The sound is generated with Web Audio from noise and simple oscillators: the sea, wading splashes, the rising roar of the wave, the muffle and bubbles under water.
 
 ## Physics honesty
 
@@ -191,7 +191,7 @@ Claude Code built it phase by phase and checked its own work with a headless-Chr
 | `src/ship/` | The lander and its damage states |
 | `src/world/` | Simple stand-in shapes for shadows, collision and submerged parts |
 | `src/post/` | Temporal upscaling, bloom, light shafts and the final composite |
-| `src/hud/`, `src/audio/` | The clocks and the procedural sound |
+| `src/hud/`, `src/audio/` | The clocks, the wave countdown and the procedural sound |
 | `src/debug/` | Named camera shots and engine self-checks |
 | `tools/` | Headless-Chrome harness: shots, benchmarks, flights, input tests, wave run, size report |
 | `evidence/final/` | The final set of screenshots |

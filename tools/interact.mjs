@@ -8,7 +8,7 @@ const phase = Number(process.env.PHASE || 2);
 const CHECK_TITLES = {
   1: 'start-up: ready, full-resolution canvas, no console errors',
   2: 'opening state: preset 0, player camera behind the astronaut, ship nearby, nothing locked or playing',
-  3: 'only the clocks on screen, top-left glass panel',
+  3: 'only the clocks and the wave countdown on screen, two top-left glass panels',
   4: 'first click locks the pointer and starts audio, with no new page elements',
   5: 'the mouse wheel changes nothing',
   6: 'ctrl+wheel changes nothing',
@@ -306,17 +306,21 @@ try {
       const screen = await page.evaluate(`(() => {
         const canvas = document.querySelector('canvas');
         const panel = document.getElementById('clocks');
+        const hudRow = document.getElementById('hud');
+        const countdown = document.getElementById('wave-countdown');
         const visible = [...document.body.querySelectorAll('*')].filter((element) => {
           const style = getComputedStyle(element);
           const box = element.getBoundingClientRect();
           return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0 && box.width > 0 && box.height > 0;
         });
-        const strays = visible.filter((element) => element !== canvas && !(panel && (element === panel || panel.contains(element)))).map((element) => element.tagName + (element.id ? '#' + element.id : ''));
+        const strays = visible.filter((element) => element !== canvas && !(hudRow && (element === hudRow || hudRow.contains(element)))).map((element) => element.tagName + (element.id ? '#' + element.id : ''));
         const box = panel ? panel.getBoundingClientRect() : null;
         const style = panel ? getComputedStyle(panel) : null;
         return {
           strays,
           hasPanel: Boolean(panel),
+          countdownRightOfClocks: Boolean(panel && countdown && countdown.getBoundingClientRect().left >= panel.getBoundingClientRect().right && Math.abs(countdown.getBoundingClientRect().top - panel.getBoundingClientRect().top) < 2),
+          countdownBackdropFilter: countdown ? (getComputedStyle(countdown).backdropFilter || 'none') : 'none',
           leftFraction: box ? box.left / innerWidth : null,
           topFraction: box ? box.top / innerHeight : null,
           backdropFilter: style ? (style.backdropFilter || style.webkitBackdropFilter || 'none') : 'none',
@@ -327,6 +331,8 @@ try {
       if (screen.strays.length) problems.push(`other visible elements: ${screen.strays.join(', ')}`);
       if (screen.hasPanel && (screen.leftFraction >= 0.1 || screen.topFraction >= 0.1)) problems.push(`panel at ${(screen.leftFraction * 100).toFixed(1)}% / ${(screen.topFraction * 100).toFixed(1)}% of the viewport (expected the top-left corner)`);
       if (screen.backdropFilter === 'none') problems.push('the panel has no backdrop-filter (expected glass)');
+      if (!screen.countdownRightOfClocks) problems.push('no wave countdown panel (#wave-countdown) level with the clocks on their right');
+      if (screen.countdownBackdropFilter !== screen.backdropFilter) problems.push(`the countdown panel's glass (${screen.countdownBackdropFilter}) differs from the clocks' (${screen.backdropFilter})`);
       const skip = await page.evaluate(pageExpression(`(async () => {
         const api = window.millersPlanet;
         const results = [];
@@ -335,19 +341,20 @@ try {
           await new Promise((resolve) => setTimeout(resolve, 120));
           const clocks = api.stats().clocks;
           const panel = document.getElementById('clocks');
-          results.push({ seconds, ratio: clocks.earthSeconds / clocks.millerSeconds, millerText: clocks.panelMillerText, earthText: clocks.panelEarthText, panelText: panel ? panel.textContent : '' });
+          results.push({ seconds, ratio: clocks.earthSeconds / clocks.millerSeconds, millerText: clocks.panelMillerText, earthText: clocks.panelEarthText, waveText: clocks.panelWaveText, countdownText: clocks.panelCountdownText, panelText: panel ? panel.textContent : '' });
         }
         api.freezeTime(0);
         api.freezeTime(null);
         return results;
       })()`));
-      const expected = { 3600: ['01:00:00', '7 yr 0 d 00:00'], 1200: ['00:20:00', '2 yr 121 d 18:00'], 754.6: ['00:12:34', '1 yr 170 d 16:09'] };
+      const expected = { 3600: ['01:00:00', '7 yr 0 d 00:00', '15', 'now'], 1200: ['00:20:00', '2 yr 121 d 18:00', '5', 'now'], 754.6: ['00:12:34', '1 yr 170 d 16:09', '4', '03:26'] };
       for (const entry of skip) {
         if (Math.abs(entry.ratio - 61362) > 1e-6) problems.push(`Earth/Miller ratio ${entry.ratio} at ${entry.seconds} s (expected 61362)`);
-        const [millerExpected, earthExpected] = expected[entry.seconds];
+        const [millerExpected, earthExpected, waveExpected, countdownExpected] = expected[entry.seconds];
+        if (entry.waveText !== waveExpected || entry.countdownText !== countdownExpected) problems.push(`at ${entry.seconds} s the countdown shows wave ${entry.waveText}, impact in ${entry.countdownText} (expected wave ${waveExpected}, ${countdownExpected})`);
         if (entry.millerText !== millerExpected || entry.earthText !== earthExpected) problems.push(`at ${entry.seconds} s the panel shows ${entry.millerText} / ${entry.earthText} (expected ${millerExpected} / ${earthExpected})`);
       }
-      record(3, problems.length === 0, problems.length ? problems.join('; ') : `only the canvas and the clock panel are visible; panel at ${(screen.leftFraction * 100).toFixed(1)}% / ${(screen.topFraction * 100).toFixed(1)}% with backdrop-filter "${screen.backdropFilter}"; time skips 3600 / 1200 / 754.6 s show ${skip.map((entry) => entry.millerText + ' | ' + entry.earthText).join(', ')} (ratio 61362)`);
+      record(3, problems.length === 0, problems.length ? problems.join('; ') : `only the canvas and the clock panel are visible; panel at ${(screen.leftFraction * 100).toFixed(1)}% / ${(screen.topFraction * 100).toFixed(1)}% with backdrop-filter "${screen.backdropFilter}"; time skips 3600 / 1200 / 754.6 s show ${skip.map((entry) => entry.millerText + ' | ' + entry.earthText + ' | wave ' + entry.waveText + ' in ' + entry.countdownText).join(', ')} (ratio 61362)`);
     }
 
     if (shouldRun(4)) {

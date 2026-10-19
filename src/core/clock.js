@@ -9,11 +9,12 @@ export class SimulationClock {
     }
 
     advance(deltaSeconds) {
-        const clampedDelta = Math.min(Math.max(deltaSeconds, 0), largestSimulationStepSeconds);
+        const elapsedRealSeconds = Math.max(deltaSeconds, 0);
+        const clampedDelta = Math.min(elapsedRealSeconds, largestSimulationStepSeconds);
         this.lastDeltaSeconds = this.frozenAtSeconds === null ? clampedDelta : 0;
         if (this.frozenAtSeconds === null) {
             if (this.started) {
-                this.timeSeconds += clampedDelta;
+                this.timeSeconds += elapsedRealSeconds;
             }
             this.started = true;
         } else {

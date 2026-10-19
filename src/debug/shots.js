@@ -235,6 +235,7 @@ export const shotDefinitions = {
     hud: {
         phase: 6,
         hiddenSystems: ["testGeometry"],
+        shownSystems: ["wave"],
         timeSeconds: 754,
         verticalFieldOfViewDegrees: 56,
         showHud: true,

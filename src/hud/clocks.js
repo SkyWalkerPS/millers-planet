@@ -24,47 +24,74 @@ export function formatEarthClock(millerSeconds) {
     return `${years} yr ${days} d ${twoDigits(hours)}:${twoDigits(minutes)}`;
 }
 
+export function formatImpactCountdown(secondsBeforeImpact) {
+    if (secondsBeforeImpact <= 0) {
+        return "now";
+    }
+    const wholeSeconds = Math.ceil(secondsBeforeImpact);
+    return `${twoDigits(Math.floor(wholeSeconds / 60))}:${twoDigits(wholeSeconds % 60)}`;
+}
+
+export function createHudRow(parent) {
+    const row = document.createElement("div");
+    row.id = "hud";
+    Object.assign(row.style, {
+        position: "fixed",
+        left: "16px",
+        top: "16px",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "10px",
+        pointerEvents: "none",
+        userSelect: "none",
+    });
+    parent.appendChild(row);
+    return row;
+}
+
+function createGlassPanel(parent, id, ariaLabel) {
+    const panel = document.createElement("div");
+    panel.id = id;
+    panel.setAttribute("aria-label", ariaLabel);
+    Object.assign(panel.style, {
+        padding: "10px 14px 11px",
+        borderRadius: "10px",
+        background: "rgba(24, 24, 26, 0.26)",
+        border: "1px solid rgba(255, 255, 255, 0.14)",
+        boxShadow: "0 1px 10px rgba(0, 0, 0, 0.12)",
+        backdropFilter: "blur(14px) saturate(1.15)",
+        webkitBackdropFilter: "blur(14px) saturate(1.15)",
+        color: "#efece6",
+        font: "500 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        fontVariantNumeric: "tabular-nums",
+        letterSpacing: "0.02em",
+        pointerEvents: "none",
+        userSelect: "none",
+        display: "grid",
+        gridTemplateColumns: "auto auto",
+        columnGap: "14px",
+        rowGap: "2px",
+    });
+    const addRow = (label) => {
+        const name = document.createElement("span");
+        name.textContent = label;
+        name.style.opacity = "0.62";
+        const value = document.createElement("span");
+        panel.append(name, value);
+        return value;
+    };
+    parent.appendChild(panel);
+    return { panel, addRow };
+}
+
 export class ClockPanel {
     constructor(parent) {
-        const panel = document.createElement("div");
-        panel.id = "clocks";
-        panel.setAttribute("aria-label", "Mission clocks");
-        Object.assign(panel.style, {
-            position: "fixed",
-            left: "16px",
-            top: "16px",
-            padding: "10px 14px 11px",
-            borderRadius: "10px",
-            background: "rgba(24, 24, 26, 0.26)",
-            border: "1px solid rgba(255, 255, 255, 0.14)",
-            boxShadow: "0 1px 10px rgba(0, 0, 0, 0.12)",
-            backdropFilter: "blur(14px) saturate(1.15)",
-            webkitBackdropFilter: "blur(14px) saturate(1.15)",
-            color: "#efece6",
-            font: "500 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-            fontVariantNumeric: "tabular-nums",
-            letterSpacing: "0.02em",
-            pointerEvents: "none",
-            userSelect: "none",
-            display: "grid",
-            gridTemplateColumns: "auto auto",
-            columnGap: "14px",
-            rowGap: "2px",
-        });
-        const addRow = (label) => {
-            const name = document.createElement("span");
-            name.textContent = label;
-            name.style.opacity = "0.62";
-            const value = document.createElement("span");
-            panel.append(name, value);
-            return value;
-        };
+        const { panel, addRow } = createGlassPanel(parent, "clocks", "Mission clocks");
         this.millerValue = addRow("Miller");
         this.earthValue = addRow("Earth");
         this.millerText = "";
         this.earthText = "";
         this.panel = panel;
-        parent.appendChild(panel);
     }
 
     update(millerSeconds) {
@@ -77,6 +104,34 @@ export class ClockPanel {
         if (earthText !== this.earthText) {
             this.earthText = earthText;
             this.earthValue.textContent = earthText;
+        }
+    }
+
+    setVisible(visible) {
+        this.panel.style.display = visible ? "grid" : "none";
+    }
+}
+
+export class WaveCountdownPanel {
+    constructor(parent) {
+        const { panel, addRow } = createGlassPanel(parent, "wave-countdown", "Time to the next wave impact");
+        this.waveValue = addRow("Wave");
+        this.countdownValue = addRow("Impact in");
+        this.waveText = "";
+        this.countdownText = "";
+        this.panel = panel;
+    }
+
+    update(waveIndex, secondsBeforeImpact) {
+        const waveText = `${waveIndex}`;
+        const countdownText = formatImpactCountdown(secondsBeforeImpact);
+        if (waveText !== this.waveText) {
+            this.waveText = waveText;
+            this.waveValue.textContent = waveText;
+        }
+        if (countdownText !== this.countdownText) {
+            this.countdownText = countdownText;
+            this.countdownValue.textContent = countdownText;
         }
     }
 

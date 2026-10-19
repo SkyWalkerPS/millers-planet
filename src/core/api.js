@@ -43,6 +43,8 @@ export function installPageApi() {
             } else if (!paused && app.liveLoopPausedByHarness) {
                 app.liveLoopPausedCount--;
                 app.liveLoopPausedByHarness = false;
+                app.pacer.reset();
+                app.lastRenderedRafTimeMilliseconds = -1;
             }
             return app.liveLoopPausedCount > 0;
         },

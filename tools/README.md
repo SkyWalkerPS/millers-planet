@@ -145,6 +145,10 @@ The floating origin. It renders the same view before and after a forced shift of
 
 Five waves in a row. For each wave it lets the clock run into the approach (T−59), brace (T−5), underwater (T+2), drain (T+8) and after (T+15), takes a screenshot of each, and checks the phase, the brace and input lock, the underwater view, the ship's state and its distance from the impact spot, plus a view of the ship from that spot. It samples the camera every 0.1 s through the brace-in and drain blends (the helmet must stay in view and at least 0.8 m away). It compares the CPU copy of the wave's crest noise with the GPU's, and checks the schedule at the worst and calmest crest offsets within ±20 km. Finally, a reload must reset everything. Run: `PHASE=7 node tools/wave-run.mjs` (`WAVES=1` for a quick run). Writes `evidence/<phase>-wave-run-*.png` and `-wave-run.json`; exit code 1 on any failure.
 
+## background-clock-check (`background-clock-check.mjs`)
+
+Checks that the game clock follows real time while no frames are drawn, as in a hidden tab. It holds back the page's animation-frame callbacks for 6 s (`FROZEN_SECONDS`), then releases them and passes when the game clock moved by at least 90% of the real time that passed and not more than it, and when the wave countdown panel shows the right wave and countdown. Run: `node tools/background-clock-check.mjs`.
+
 ## crest-check (`crest-check.mjs`)
 
 Measures the backlit crest. It reads the crest and face crops that the `crest-backlit` shot writes (computed from the wave's geometry), and passes when the crest is brighter and more blue-green than the face. Run after `npm run shots -- crest-backlit`: `PHASE=7 node tools/crest-check.mjs`. Writes `evidence/<phase>-crest-check.json`.

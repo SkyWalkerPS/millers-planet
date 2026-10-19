@@ -39,7 +39,7 @@ import { SuitRenderer } from "../character/suitRender.js";
 import { BONE_HAND_LEFT, BONE_HAND_RIGHT, BONE_HELMET, BONE_NECK, BONE_PELVIS, BONE_UPPER_ARM_LEFT, BONE_UPPER_ARM_RIGHT } from "../character/suitSkeleton.js";
 import { CameraRig, cameraPresets } from "../camera/cameraRig.js";
 import { scriptedInputAt, scriptedWalk } from "../character/scriptedWalk.js";
-import { ClockPanel, earthSecondsPerMillerSecond, formatEarthClock, formatMillerClock } from "../hud/clocks.js";
+import { ClockPanel, WaveCountdownPanel, createHudRow, earthSecondsPerMillerSecond, formatEarthClock, formatMillerClock } from "../hud/clocks.js";
 import { shotDefinitions, orbitCameraPose } from "../debug/shots.js";
 import { directionFromAzimuthElevation, gargantuaAzimuthRadians, gargantuaElevationRadians, openingYawRadians } from "../world/skyLayout.js";
 
@@ -71,7 +71,9 @@ export class MillersPlanetApp {
         const created = await createEngine(canvas);
         const app = new MillersPlanetApp(canvas, parameters, created);
         await app.warmUp();
-        app.clockPanel = new ClockPanel(document.body);
+        const hudRow = createHudRow(document.body);
+        app.clockPanel = new ClockPanel(hudRow);
+        app.waveCountdownPanel = new WaveCountdownPanel(hudRow);
         app.applyHudVisibility();
         app.startLiveLoop();
         return app;
@@ -847,6 +849,7 @@ export class MillersPlanetApp {
             this.giantWave.discardHistory();
             this.recedingWave.setEnabled(false);
             this.recedingWave.discardHistory();
+            this.applyHudVisibility();
         } else if (name === "astronaut") {
             this.suitRenderer.setVisible(isOn);
         } else if (name === "ship") {
@@ -917,6 +920,7 @@ export class MillersPlanetApp {
         const shot = this.currentShotName ? shotDefinitions[this.currentShotName] : null;
         const visible = this.parameters.hudVisible && (!shot || Boolean(shot.showHud));
         this.clockPanel?.setVisible(visible);
+        this.waveCountdownPanel?.setVisible(visible && this.systemsEnabled.wave);
     }
 
     enterPlayerMode() {
@@ -1921,7 +1925,7 @@ export class MillersPlanetApp {
             this.invalidateTemporalHistory();
         }
         this.ensureBeautyTargets(rafTimeMilliseconds);
-        this.updateCamera(this.clock.lastDeltaSeconds > 0 ? this.clock.lastDeltaSeconds : deltaSeconds);
+        this.updateCamera(this.clock.lastDeltaSeconds > 0 ? this.clock.lastDeltaSeconds : Math.min(deltaSeconds, 0.1));
         this.cameraFrame.prepare(outputWidth, outputHeight, this.beautyTargets.internalWidth, this.beautyTargets.internalHeight);
         this.testScene.update(this.clock.timeSeconds, frameIndex);
         this.atmosphere.setCameraPositionMetres(this.cameraFrame.position.x, this.cameraFrame.position.y, this.cameraFrame.position.z);
@@ -1951,6 +1955,7 @@ export class MillersPlanetApp {
         this.postChain.render(frameIndex);
         this.frameLog.recordSubmittedFrame(frameIndex, rafTimeMilliseconds, this.resolution.currentScale, this.beautyTargets.generation, this.wavePhaseCode, cameraModeCodes[this.cameraMode] ?? 3);
         this.clockPanel?.update(this.clock.timeSeconds);
+        this.waveCountdownPanel?.update(this.waveState.index, this.waveState.secondsBeforeImpact);
         engine.endFrame();
         this.cameraFrame.finishFrame();
         this.pipelinesCreatedLastFrame = this.pipelineCounters.renderPipelinesCreated + this.pipelineCounters.computePipelinesCreated - pipelinesBefore;
@@ -2251,7 +2256,7 @@ export class MillersPlanetApp {
                 position: [cameraFrame.position.x, cameraFrame.position.y, cameraFrame.position.z],
                 helmet: this.helmetViewStats(),
             },
-            clocks: { millerSeconds: clocks.millerSeconds, earthSeconds: clocks.earthSeconds, ratio: earthSecondsPerMillerSecond, millerText: clocks.millerText, earthText: clocks.earthText, panelVisible: Boolean(this.clockPanel && this.clockPanel.panel.style.display !== "none"), panelMillerText: this.clockPanel?.millerText ?? null, panelEarthText: this.clockPanel?.earthText ?? null },
+            clocks: { millerSeconds: clocks.millerSeconds, earthSeconds: clocks.earthSeconds, ratio: earthSecondsPerMillerSecond, millerText: clocks.millerText, earthText: clocks.earthText, panelVisible: Boolean(this.clockPanel && this.clockPanel.panel.style.display !== "none"), panelMillerText: this.clockPanel?.millerText ?? null, panelEarthText: this.clockPanel?.earthText ?? null, countdownVisible: Boolean(this.waveCountdownPanel && this.waveCountdownPanel.panel.style.display !== "none"), panelWaveText: this.waveCountdownPanel?.waveText ?? null, panelCountdownText: this.waveCountdownPanel?.countdownText ?? null },
             audio: { state: this.audioSystem.state, muffleCutoffHz: this.audioSystem.muffleCutoffHz },
             pointerLocked: this.input.pointerLocked,
             heldKeys: Array.from(this.input.heldKeyCodes),
