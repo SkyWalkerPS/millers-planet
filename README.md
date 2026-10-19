@@ -125,15 +125,15 @@ This is a non-commercial fan tribute to *Interstellar*. It uses no frames, model
 
 ## Performance
 
-Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on battery, from the production build. There were five scripted 30-second flights, each run three times, in two complete passes (30 runs):
+Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on mains power, from the production build. There were five scripted 30-second flights, each run three times:
 - walking, orbiting the camera and switching views, with and without the clocks;
 - sweeping over the sea, including an instant flick from the sky down to the water;
 - the first wave, from 22 seconds before impact to 8 seconds after, through the brace, the underwater pass and the drain;
 - a stress test on a test scene that jumps from looking straight up to looking straight down.
 
-GPU time at full clock speed stayed at most 11.2 ms (p99) and 15.3 ms (maximum), against a 16.7 ms frame. The internal resolution stayed at 100% most of the time and dipped to 58% at worst, right after the instant camera jumps. In 28 of the 30 runs, every frame arrived within 16.8 ms of the one before. The other two each had one hitch, of 33 ms and 83 ms, while the GPU was nearly idle and no other GPU work was detected. The battery was down to about a quarter by then, and I could not pin down the cause.
+GPU time at full clock speed stayed at most 11.0 ms (p99) and 16.6 ms (maximum), against a 16.7 ms frame. The internal resolution stayed at 100% most of the time and dipped to 50% at worst, right after the instant camera jumps. In 14 of the 15 runs, every frame arrived within 16.8 ms of the one before. The other run had one late frame (33 ms) while looking at the sky, with the GPU nearly idle, just as macOS was lowering the GPU clock. Across all the passes, this kind of single hitch appeared about once in every six to ten runs, always in very light views. I have not found its cause.
 
-Measured without corrections, the GPU time reads higher: 11 to 15 ms (p99), with single frames up to about 32 ms right after the instant camera jumps. The cause is macOS slowing the GPU clock whenever a frame finishes early. I have not checked a real display or a screen recording.
+Measured without corrections, the GPU time reads higher: 11 to 15 ms (p99), with single frames above 20 ms right after the instant camera jumps. The cause is macOS slowing the GPU clock whenever a frame finishes early. I have not checked a real display or a screen recording.
 
 ## Known limitations
 

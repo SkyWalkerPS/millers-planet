@@ -106,12 +106,12 @@ export class DynamicResolutionController {
         this.decisionCount++;
     }
 
-    requestPreemptiveCut(fraction = 0.05, reason = "preemptive") {
+    requestPreemptiveCut(fraction = 0.05, reason = "preemptive", largestFraction = 0.2) {
         if (this.pinnedScale !== null) {
             return;
         }
         this.preemptiveCutCount++;
-        this.applyScale(this.scale * (1 - Math.min(0.2, Math.max(0, fraction))), reason);
+        this.applyScale(this.scale * (1 - Math.min(largestFraction, Math.max(0, fraction))), reason);
     }
 
     updateCostModel(scaleOfFrame, spanMilliseconds) {

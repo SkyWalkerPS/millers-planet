@@ -56,7 +56,9 @@ for (let level = 0; level < 8; level++) {
 const transparentBlack = { r: 0, g: 0, b: 0, a: 0 };
 const helmetProxyRadiusMetres = 0.17;
 const cameraJumpCosine = Math.cos(25 * degreesToRadians);
+const largeCameraJumpCosine = Math.cos(60 * degreesToRadians);
 const cameraJumpPreemptiveCut = 0.2;
+const largeCameraJumpPreemptiveCut = 0.35;
 const waveCropBands = { halfWidthMetres: 60, crestDepthsMetres: [18, 45], faceDepthsMetres: [250, 500] };
 
 function easeInOut(fraction) {
@@ -1830,8 +1832,10 @@ export class MillersPlanetApp {
         const forwardY = Math.sin(pose.pitchRadians);
         const forwardZ = Math.cos(pose.yawRadians) * cosinePitch;
         const previous = this.previousCameraForward;
-        if (this.previousCameraForwardValid && forwardX * previous[0] + forwardY * previous[1] + forwardZ * previous[2] < cameraJumpCosine) {
-            this.resolution.requestPreemptiveCut(cameraJumpPreemptiveCut, "camera jump");
+        const turnCosine = forwardX * previous[0] + forwardY * previous[1] + forwardZ * previous[2];
+        if (this.previousCameraForwardValid && turnCosine < cameraJumpCosine) {
+            const cut = turnCosine < largeCameraJumpCosine ? largeCameraJumpPreemptiveCut : cameraJumpPreemptiveCut;
+            this.resolution.requestPreemptiveCut(cut, "camera jump", cut);
         }
         previous[0] = forwardX;
         previous[1] = forwardY;
