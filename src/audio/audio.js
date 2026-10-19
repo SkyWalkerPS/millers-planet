@@ -37,13 +37,17 @@ export class AudioSystem {
 
     setMuted(muted) {
         this.muted = muted;
-        if (muted) {
-            if (this.context && this.context.state === "running") {
-                this.context.suspend();
-            }
-            return;
+        if (this.masterGain) {
+            this.masterGain.gain.cancelScheduledValues(this.context.currentTime);
+            this.masterGain.gain.setTargetAtTime(muted ? 0 : this.settings.masterGain, this.context.currentTime, 0.03);
         }
-        this.startOnUserGesture();
+        if (!muted) {
+            this.startOnUserGesture();
+        }
+    }
+
+    get outputGain() {
+        return this.masterGain ? this.masterGain.gain.value : 0;
     }
 
     random() {

@@ -2272,7 +2272,7 @@ export class MillersPlanetApp {
                 helmet: this.helmetViewStats(),
             },
             clocks: { millerSeconds: clocks.millerSeconds, earthSeconds: clocks.earthSeconds, ratio: earthSecondsPerMillerSecond, millerText: clocks.millerText, earthText: clocks.earthText, panelVisible: Boolean(this.clockPanel && this.clockPanel.panel.style.display !== "none"), panelMillerText: this.clockPanel?.millerText ?? null, panelEarthText: this.clockPanel?.earthText ?? null, countdownVisible: Boolean(this.waveCountdownPanel && this.waveCountdownPanel.panel.style.display !== "none"), panelWaveText: this.waveCountdownPanel?.waveText ?? null, panelCountdownText: this.waveCountdownPanel?.countdownText ?? null },
-            audio: { state: this.audioSystem.state, muted: this.audioSystem.muted, muffleCutoffHz: this.audioSystem.muffleCutoffHz },
+            audio: { state: this.audioSystem.state, muted: this.audioSystem.muted, outputGain: this.audioSystem.outputGain, muffleCutoffHz: this.audioSystem.muffleCutoffHz },
             pointerLocked: this.input.pointerLocked,
             heldKeys: Array.from(this.input.heldKeyCodes),
             wheelEventsSeen: this.input.wheelEventsSeen,

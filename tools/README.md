@@ -147,7 +147,7 @@ Five waves in a row. For each wave it lets the clock run into the approach (T−
 
 ## mute-check (`mute-check.mjs`)
 
-Checks the mute button on a desktop page and on a 390 × 844 page with touch emulation. On both, the button must sit at the top right, level with and as tall as the clock boxes, without overlapping the countdown. Desktop: sound starts on, the first click starts it, M mutes and unmutes, clicking the button mutes, and the choice survives a reload. Phone: it starts muted, touching the game does not start the sound, and tapping the button turns it on. Run: `node tools/mute-check.mjs`.
+Checks the mute button on a desktop page and on a 390 × 844 page with touch emulation. On both, the button must sit at the top right, level with and as tall as the clock boxes, without overlapping the countdown. Desktop: sound starts on, the first click starts it, M mutes and unmutes (the volume is read back), two quick M presses end with sound on, clicking the button mutes, and the choice survives a reload. Phone: it starts muted, touching the game does not start the sound, and tapping the button turns it on. Run: `node tools/mute-check.mjs`.
 
 ## touch-check (`touch-check.mjs`)
 

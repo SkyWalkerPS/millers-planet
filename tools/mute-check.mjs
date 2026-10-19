@@ -12,6 +12,7 @@ const layoutAndSound = (page) => page.evaluate(pageExpression(`(() => {
   return {
     muted: stats.audio.muted,
     audioState: stats.audio.state,
+    outputGain: stats.audio.outputGain,
     buttonLabel: document.getElementById('mute-button').getAttribute('aria-label'),
     buttonTop: button.top, buttonHeight: button.height, buttonRight: button.right, buttonLeft: button.left,
     clocksTop: clocks.top, clocksHeight: clocks.height,
@@ -43,21 +44,26 @@ try {
     await page.keyPress('KeyM');
     await sleep(300);
     const afterMute = await layoutAndSound(page);
-    if (!afterMute.muted || afterMute.audioState === 'running') problems.push(`desktop: M did not mute (muted ${afterMute.muted}, sound ${afterMute.audioState})`);
+    if (!afterMute.muted || afterMute.outputGain > 0.01) problems.push(`desktop: M did not mute (muted ${afterMute.muted}, volume ${afterMute.outputGain.toFixed(3)})`);
     await page.keyPress('KeyM');
     await sleep(300);
     const afterUnmute = await layoutAndSound(page);
-    if (afterUnmute.muted || afterUnmute.audioState !== 'running') problems.push(`desktop: a second M did not bring the sound back (muted ${afterUnmute.muted}, sound ${afterUnmute.audioState})`);
+    if (afterUnmute.muted || afterUnmute.audioState !== 'running' || afterUnmute.outputGain < 0.5) problems.push(`desktop: a second M did not bring the sound back (muted ${afterUnmute.muted}, sound ${afterUnmute.audioState}, volume ${afterUnmute.outputGain.toFixed(3)})`);
+    await page.keyPress('KeyM', { afterMs: 0 });
+    await page.keyPress('KeyM', { afterMs: 0 });
+    await sleep(300);
+    const afterQuickDoublePress = await layoutAndSound(page);
+    if (afterQuickDoublePress.muted || afterQuickDoublePress.audioState !== 'running' || afterQuickDoublePress.outputGain < 0.5) problems.push(`desktop: two quick M presses did not end with the sound on (muted ${afterQuickDoublePress.muted}, sound ${afterQuickDoublePress.audioState}, volume ${afterQuickDoublePress.outputGain.toFixed(3)})`);
     await page.evaluate(`(async () => { document.exitPointerLock(); await new Promise((resolve) => setTimeout(resolve, 200)); return document.pointerLockElement === null; })()`);
     await page.click(afterUnmute.buttonLeft + 10, afterUnmute.buttonTop + afterUnmute.buttonHeight / 2);
     await sleep(300);
     const afterButton = await layoutAndSound(page);
-    if (!afterButton.muted) problems.push('desktop: clicking the button did not mute');
+    if (!afterButton.muted || afterButton.outputGain > 0.01) problems.push(`desktop: clicking the button did not mute (muted ${afterButton.muted}, volume ${afterButton.outputGain.toFixed(3)})`);
     await page.goto(desktop.url);
     await waitForMillersPlanetReady(page);
     const afterReload = await layoutAndSound(page);
     if (!afterReload.muted) problems.push('desktop: the muted choice was not remembered after a reload');
-    console.log(`desktop: first click -> ${afterClick.audioState}; M -> muted ${afterMute.muted} (${afterMute.audioState}); M -> muted ${afterUnmute.muted} (${afterUnmute.audioState}); button -> muted ${afterButton.muted}; after reload muted ${afterReload.muted}`);
+    console.log(`desktop: first click -> ${afterClick.audioState}; M -> muted ${afterMute.muted} (volume ${afterMute.outputGain.toFixed(3)}); M -> muted ${afterUnmute.muted} (${afterUnmute.audioState}, volume ${afterUnmute.outputGain.toFixed(3)}); button -> muted ${afterButton.muted}; after reload muted ${afterReload.muted}`);
   } finally {
     await desktop.browser.shutdown();
   }
@@ -83,7 +89,7 @@ try {
     await touchAt(initial.buttonLeft + 10, initial.buttonTop + initial.buttonHeight / 2);
     await sleep(500);
     const afterTap = await layoutAndSound(page);
-    if (afterTap.muted || afterTap.audioState !== 'running') problems.push(`phone: tapping the button did not turn the sound on (muted ${afterTap.muted}, sound ${afterTap.audioState})`);
+    if (afterTap.muted || afterTap.audioState !== 'running' || afterTap.outputGain < 0.5) problems.push(`phone: tapping the button did not turn the sound on (muted ${afterTap.muted}, sound ${afterTap.audioState}, volume ${afterTap.outputGain.toFixed(3)})`);
     console.log(`phone: touch the game -> sound ${afterTouch.audioState}; tap the button -> muted ${afterTap.muted}, sound ${afterTap.audioState}`);
     const pageErrors = page.pageErrors();
     if (pageErrors.length) problems.push(`page errors: ${pageErrors.map((event) => event.text).join(' | ')}`);
