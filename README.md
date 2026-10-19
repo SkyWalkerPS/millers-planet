@@ -37,6 +37,7 @@ The first click on the canvas captures the mouse and starts the sound.
 | Shift | Wade a little faster (about 1.95 m/s) |
 | C | Cycle the three views: third person, closer third person, first person |
 | Esc | Release the mouse |
+| M, or the speaker button at the top right | Mute or unmute the sound (remembered on this device) |
 
 On a phone or tablet:
 
@@ -46,6 +47,7 @@ On a phone or tablet:
 | Drag past the circle's edge | Wade faster, like Shift |
 | Drag anywhere else | Look around (turn and tilt the camera) |
 | View button | Cycle the three views, like C |
+| Speaker button, top right | Turn the sound on (phones start muted) |
 
 On tall, narrow screens the camera widens its view and centres the astronaut, so the whole figure and Gargantua stay in frame.
 
@@ -59,7 +61,7 @@ URL parameters, mainly for testing:
 | `?time=220` | Freeze the clock at a time in seconds (the first wave hits at 240) |
 | `?shot=crest-backlit` | Jump to a named camera shot (the list is in `tools/shots.mjs`) |
 | `?systems=-wave,-ship` | Switch systems off: `sea`, `wave`, `astronaut`, `ship`, `gargantua`, `atmosphere`, `bloom`, `shafts`, `temporalUpscale`, `jitter` |
-| `?hud=0` | Hide the clocks and the wave countdown |
+| `?hud=0` | Hide the clocks, the wave countdown, the mute button and the touch controls |
 
 The page also exposes `window.millersPlanet` (stats, shots, frame timings, a time skip), which the test tools in `tools/` drive.
 

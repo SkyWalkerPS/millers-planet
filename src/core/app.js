@@ -40,6 +40,8 @@ import { BONE_HAND_LEFT, BONE_HAND_RIGHT, BONE_HELMET, BONE_NECK, BONE_PELVIS, B
 import { CameraRig, cameraPresets, shoulderScaleForAspect } from "../camera/cameraRig.js";
 import { scriptedInputAt, scriptedWalk } from "../character/scriptedWalk.js";
 import { ClockPanel, WaveCountdownPanel, createHudRow, earthSecondsPerMillerSecond, formatEarthClock, formatMillerClock } from "../hud/clocks.js";
+import { MuteButton, readStoredMutedPreference } from "../hud/muteButton.js";
+import { deviceHasTouch } from "../hud/touchControls.js";
 import { shotDefinitions, orbitCameraPose } from "../debug/shots.js";
 import { directionFromAzimuthElevation, gargantuaAzimuthRadians, gargantuaElevationRadians, openingYawRadians } from "../world/skyLayout.js";
 
@@ -74,6 +76,10 @@ export class MillersPlanetApp {
         const hudRow = createHudRow(document.body);
         app.clockPanel = new ClockPanel(hudRow);
         app.waveCountdownPanel = new WaveCountdownPanel(hudRow);
+        const startMuted = readStoredMutedPreference() ?? deviceHasTouch();
+        app.audioSystem.muted = startMuted;
+        app.muteButton = new MuteButton(hudRow, { muted: startMuted, onChange: (muted) => app.audioSystem.setMuted(muted) });
+        app.input.onMuteKey = () => app.muteButton.toggle();
         app.applyHudVisibility();
         app.startLiveLoop();
         return app;
@@ -922,6 +928,7 @@ export class MillersPlanetApp {
         this.clockPanel?.setVisible(visible);
         this.waveCountdownPanel?.setVisible(visible && this.systemsEnabled.wave);
         this.input?.touchControls?.setHudVisible(visible);
+        this.muteButton?.setVisible(visible);
     }
 
     enterPlayerMode() {
@@ -2265,7 +2272,7 @@ export class MillersPlanetApp {
                 helmet: this.helmetViewStats(),
             },
             clocks: { millerSeconds: clocks.millerSeconds, earthSeconds: clocks.earthSeconds, ratio: earthSecondsPerMillerSecond, millerText: clocks.millerText, earthText: clocks.earthText, panelVisible: Boolean(this.clockPanel && this.clockPanel.panel.style.display !== "none"), panelMillerText: this.clockPanel?.millerText ?? null, panelEarthText: this.clockPanel?.earthText ?? null, countdownVisible: Boolean(this.waveCountdownPanel && this.waveCountdownPanel.panel.style.display !== "none"), panelWaveText: this.waveCountdownPanel?.waveText ?? null, panelCountdownText: this.waveCountdownPanel?.countdownText ?? null },
-            audio: { state: this.audioSystem.state, muffleCutoffHz: this.audioSystem.muffleCutoffHz },
+            audio: { state: this.audioSystem.state, muted: this.audioSystem.muted, muffleCutoffHz: this.audioSystem.muffleCutoffHz },
             pointerLocked: this.input.pointerLocked,
             heldKeys: Array.from(this.input.heldKeyCodes),
             wheelEventsSeen: this.input.wheelEventsSeen,

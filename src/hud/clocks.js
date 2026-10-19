@@ -38,9 +38,10 @@ export function createHudRow(parent) {
     Object.assign(row.style, {
         position: "fixed",
         left: "max(clamp(10px, 3vw, 16px), env(safe-area-inset-left))",
+        right: "max(clamp(10px, 3vw, 16px), env(safe-area-inset-right))",
         top: "max(clamp(10px, 3vw, 16px), env(safe-area-inset-top))",
         display: "flex",
-        alignItems: "flex-start",
+        alignItems: "stretch",
         gap: "clamp(6px, 2vw, 10px)",
         pointerEvents: "none",
         userSelect: "none",

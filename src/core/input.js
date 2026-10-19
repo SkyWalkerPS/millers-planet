@@ -14,6 +14,7 @@ export class InputState {
         this.wheelEventsPrevented = 0;
         this.pressedKeyQueue = [];
         this.audioStartError = null;
+        this.onMuteKey = null;
         this.touchMove = { pointerId: null, originX: 0, originY: 0, radius: 1, moveRight: 0, moveForward: 0, run: false };
         this.touchLook = { pointerId: null, lastX: 0, lastY: 0 };
         this.touchControls = typeof document === "undefined" ? null : new TouchControls(document.body, { onViewButton: () => this.pressedKeyQueue.push("KeyC") });
@@ -41,6 +42,10 @@ export class InputState {
         };
         this.handleKeyDown = (event) => {
             if (event.repeat) {
+                return;
+            }
+            if (event.code === "KeyM" && this.onMuteKey) {
+                this.onMuteKey();
                 return;
             }
             this.heldKeyCodes.add(event.code);

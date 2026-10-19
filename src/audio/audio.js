@@ -32,6 +32,18 @@ export class AudioSystem {
         this.underwater = false;
         this.nextBubbleSeconds = 0;
         this.randomState = 0x2545f491;
+        this.muted = false;
+    }
+
+    setMuted(muted) {
+        this.muted = muted;
+        if (muted) {
+            if (this.context && this.context.state === "running") {
+                this.context.suspend();
+            }
+            return;
+        }
+        this.startOnUserGesture();
     }
 
     random() {
@@ -42,6 +54,9 @@ export class AudioSystem {
     }
 
     startOnUserGesture() {
+        if (this.muted) {
+            return;
+        }
         if (!this.context) {
             const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
             if (!AudioContextClass) {
