@@ -30,7 +30,7 @@ export class SeaSurface {
             "seabedShape",
             "rippleWindowCentreHalfTexel",
             "seabedRippleMarks",
-            "worldOriginAndUnused",
+            "worldOriginAndRoughFresnel",
             "cascadeOriginUvOffsetsFirstSecond",
             "cascadeOriginUvOffsetsThird",
             "drainLevelFoamFlow",
@@ -85,7 +85,7 @@ export class SeaSurface {
         const [waveTravelX, waveTravelZ] = this.simulation.settings.windTravelDirection;
         const waveTravelLength = Math.hypot(waveTravelX, waveTravelZ) || 1;
         const uvOffsets = sizes.map((size) => [((this.worldOriginX % size) + size) % size / size, ((this.worldOriginZ % size) + size) % size / size]);
-        parameters.updateFloat4("worldOriginAndUnused", this.worldOriginX, this.worldOriginZ, 0, 0);
+        parameters.updateFloat4("worldOriginAndRoughFresnel", this.worldOriginX, this.worldOriginZ, settings.roughFresnelTiltPerSlopeDeviation, 0);
         parameters.updateFloat4("cascadeOriginUvOffsetsFirstSecond", uvOffsets[0][0], uvOffsets[0][1], uvOffsets[1][0], uvOffsets[1][1]);
         parameters.updateFloat4("cascadeOriginUvOffsetsThird", uvOffsets[2][0], uvOffsets[2][1], 0, 0);
         parameters.updateFloat4("drainLevelFoamFlow", this.drainLevelMetres, this.aftermathFoam, this.aftermathFlowMetres, 0);

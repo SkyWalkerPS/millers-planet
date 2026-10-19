@@ -9,7 +9,7 @@ struct SeaSurfaceParameters {
     seabedShape: vec4f,
     rippleWindowCentreHalfTexel: vec4f,
     seabedRippleMarks: vec4f,
-    worldOriginAndUnused: vec4f,
+    worldOriginAndRoughFresnel: vec4f,
     cascadeOriginUvOffsetsFirstSecond: vec4f,
     cascadeOriginUvOffsetsThird: vec4f,
     drainLevelFoamFlow: vec4f,

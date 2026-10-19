@@ -127,7 +127,9 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let cloudLevel = log2(max(spreadRadians / CLOUD_DECK_TEXEL_RADIANS, 1.0));
     let reflection = skyRadianceBlurred(reflected, gargantuaLevel, cloudLevel);
     let fresnelNormal = normalize(mix(normal, vec3f(0.0, 1.0, 0.0), optics.w));
-    let fresnel = fresnelWater(max(dot(fresnelNormal, view), 0.0));
+    let visibleFacetTilt = seaSurface.worldOriginAndRoughFresnel.z * viewSlopeDeviation * (1.0 - smoothstep(0.0, 2.5, grazing));
+    let roughIncidenceCosine = sin(min(asin(clamp(view.y, 0.0, 1.0)) + visibleFacetTilt, 1.5707));
+    let fresnel = fresnelWater(max(max(dot(fresnelNormal, view), 0.0), roughIncidenceCosine));
 
     let lightDirection = atmosphere.lightDirectionAndCameraAltitude.xyz;
     let illuminance = atmosphere.lightIlluminanceAndMarineScaleHeight.xyz;
@@ -140,7 +142,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let refractionIndexInverse = 1.0 / optics.z;
     let bodyNormal = normalize(mix(normal, vec3f(0.0, 1.0, 0.0), 0.5));
     let refracted = refract(-view, bodyNormal, refractionIndexInverse);
-    let worldOrigin = seaSurface.worldOriginAndUnused.xy;
+    let worldOrigin = seaSurface.worldOriginAndRoughFresnel.xy;
     let waterDepth = max(seabedDepthAt(world.xz + worldOrigin) + surfaceHeight + seaSurface.drainLevelFoamFlow.x, 0.02);
     let pathDown = waterDepth / max(-refracted.y, 0.2);
     let bedPosition = world.xz + refracted.xz * pathDown;

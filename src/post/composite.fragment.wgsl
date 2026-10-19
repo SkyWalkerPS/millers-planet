@@ -29,6 +29,8 @@ uniform helmetRimAmount: f32;
 uniform frameIndex: f32;
 uniform aspect: f32;
 uniform outputBlack: f32;
+uniform shadowColourBalance: vec3f;
+uniform shadowBalanceLumaRange: vec2f;
 
 const AGX_INSET = mat3x3f(
     0.842479062253094, 0.0423282422610123, 0.0423756549057051,
@@ -126,6 +128,8 @@ fn displayColour(uv: vec2f, pixel: vec2f) -> vec3f {
     let fromCentre = (uv - vec2f(0.5)) * vec2f(uniforms.aspect, 1.0);
     colour *= 1.0 - uniforms.vignetteAmount * dot(fromCentre, fromCentre);
     var display = agxToDisplay(colour);
+    let displayLuma = dot(display, vec3f(0.2126, 0.7152, 0.0722));
+    display *= mix(uniforms.shadowColourBalance, vec3f(1.0), smoothstep(uniforms.shadowBalanceLumaRange.x, uniforms.shadowBalanceLumaRange.y, displayLuma));
     let rim = helmetRimFactor(uv) * uniforms.helmetRimAmount;
     display = mix(display, display * 0.18 + vec3f(0.035, 0.04, 0.045), rim);
     let cell = floor(pixel * 0.5);

@@ -42,6 +42,8 @@ export class PostChain {
             maximumBlurRadiusPixels: 14,
             helmetRimAmount: 0,
             outputBlack: 0,
+            shadowColourBalance: [0.86, 1.0, 1.04],
+            shadowBalanceLumaRange: [0.15, 0.75],
         };
         this.frame = {
             frameIndex: 0,
@@ -70,7 +72,7 @@ export class PostChain {
         this.composite = createWrapper(
             engine,
             "composite",
-            ["outputTexelSize", "subRectangleUvScale", "exposure", "bloomAmount", "shaftAmount", "vignetteAmount", "grainAmount", "sharpenAmount", "focusDistanceMetres", "maximumBlurRadiusPixels", "helmetRimAmount", "frameIndex", "aspect", "outputBlack"],
+            ["outputTexelSize", "subRectangleUvScale", "exposure", "bloomAmount", "shaftAmount", "vignetteAmount", "grainAmount", "sharpenAmount", "focusDistanceMetres", "maximumBlurRadiusPixels", "helmetRimAmount", "frameIndex", "aspect", "outputBlack", "shadowColourBalance", "shadowBalanceLumaRange"],
             ["resolvedColour", "bloomTexture", "shaftTexture", "beautyMotion"],
         );
         this.bloomDownSourceTexture = null;
@@ -157,6 +159,8 @@ export class PostChain {
             effect.setFloat("frameIndex", this.frame.frameIndex % 1024);
             effect.setFloat("aspect", this.outputWidth / this.outputHeight);
             effect.setFloat("outputBlack", settings.outputBlack);
+            effect.setFloat3("shadowColourBalance", settings.shadowColourBalance[0], settings.shadowColourBalance[1], settings.shadowColourBalance[2]);
+            effect.setFloat2("shadowBalanceLumaRange", settings.shadowBalanceLumaRange[0], settings.shadowBalanceLumaRange[1]);
         });
     }
 

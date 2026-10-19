@@ -62,7 +62,7 @@ The sky uses Sébastien Hillaire's atmosphere method, as in web-ocean: compute s
 
 ### The shallow sea
 
-The sea is three FFT cascades of 256 × 256 (7.43 m, 1.39 m and 26 cm patches) with a TMA spectrum for 20 cm of water, under the film's 1.3 g (12.75 m/s²), with 5 m/s of wind and waves about 3.5 cm high. The waves move with finite-depth capillary–gravity dispersion, so a test wave of 1.86 m turns at 5.038 rad/s against the 5.041 predicted for that depth (deep water would be 6.57). A clipmap of about 320,000 triangles follows the player. Up close you look through clear water at a procedural seabed of sand, ripple marks and stones; further out the sea becomes a grey mirror of the overcast with a glitter path under Gargantua.
+The sea is three FFT cascades of 256 × 256 (7.43 m, 1.39 m and 26 cm patches) with a TMA spectrum for 20 cm of water, under the film's 1.3 g (12.75 m/s²), with 5 m/s of wind and waves about 3.5 cm high. The waves move with finite-depth capillary–gravity dispersion, so a test wave of 1.86 m turns at 5.038 rad/s against the 5.041 predicted for that depth (deep water would be 6.57). A clipmap of about 320,000 triangles follows the player. Up close you look through the slightly murky water at a procedural seabed of sand, ripple marks and stones. Further out it turns dark slate, as in the film. Rough water reflects less at grazing angles, because the facets you can see there tilt toward you, so a soft glitter path runs under Gargantua.
 
 ### Footsteps and wakes
 
@@ -86,7 +86,7 @@ For five seconds the camera is under the wave. Looking up, you see the sky throu
 
 ### Post-processing and resolution
 
-The scene is drawn at a lower internal resolution and brought to full size by temporal upscaling with motion vectors, then bloom, light shafts, a slight depth of field, AgX tone mapping, a vignette and film grain, all following snowflow_demo. The internal resolution adapts continuously to keep the GPU inside its budget. It steers by GPU time corrected for the GPU's clock speed, because macOS lowers the clock whenever a frame finishes early, which makes raw timings read high.
+The scene is drawn at a lower internal resolution and brought to full size by temporal upscaling with motion vectors, then bloom, light shafts, a slight depth of field, AgX tone mapping, a gentle colour grade that cools the shadows and leaves the highlights alone (matched to the film), a vignette and film grain, following snowflow_demo. The internal resolution adapts continuously to keep the GPU inside its budget. It steers by GPU time corrected for the GPU's clock speed, because macOS lowers the clock whenever a frame finishes early, which makes raw timings read high.
 
 ### Far from the start
 
@@ -106,7 +106,9 @@ The clocks show Miller time (hours, minutes, seconds) and Earth time (years, day
 | The viewpoint: an observer 30 gravitational radii out, close to a static observer. It is not Miller's real orbit, and no observer moving with the planet is modelled | Artistic |
 | Gargantua's distance, its place in the sky, the disk colours and the speed of the disk animation | Artistic |
 | Atmosphere scattering (Hillaire) | Physically based; the haze density, cloud deck and darkened shadow are artistic |
-| The sea's wave statistics, with finite-depth dispersion at 1.3 g | Physically based; wave height and wind are chosen values |
+| The sea's wave statistics, with finite-depth dispersion at 1.3 g, and its small-scale roughness (the clean-sea value for a 5 m/s wind) | Physically based; wave height and wind are chosen values |
+| The far water's darkness: rough water reflects less at grazing angles, because you see facets tilted toward you | Approximation, tuned to the film's stills |
+| The water's grey-green murk and the colour grade (cool shadows, untouched highlights) | Artistic, matched to the film |
 | Footstep ripples, from the same dispersion | Physically based; their damping and shapes are artistic |
 | The seabed (sand, ripple marks, stones) | Artistic |
 | Snell's window, Fresnel and water absorption | Real optics; the bright light under a 1.2 km wave is artistic |
@@ -142,7 +144,7 @@ Measured without corrections, the GPU time reads higher: 11 to 15 ms (p99), with
 - Shadows are soft stand-ins cast by simple shapes; nothing shadows itself.
 - When a hull or wing of the ship comes between the camera and the astronaut, the camera jumps in to stay clear of it.
 - The wave is a shaped effect, not a fluid simulation; its back slope looks smooth and flat as it recedes, and from far away (a minute before impact) it is faint.
-- The colours are warmer and paler than the film's cold, dark slate sea.
+- The sea is calmer than the film's: its waves are a few centimetres high, so the broad, sparkling glint field and the chop of the film's water are missing.
 - Esc releasing the mouse was not tested automatically (headless Chrome cannot send it).
 
 ## Credits
