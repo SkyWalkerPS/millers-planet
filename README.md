@@ -128,7 +128,7 @@ This is a non-commercial fan tribute to *Interstellar*. It uses no frames, model
 
 ## Performance
 
-Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on mains power, from the production build. There were six scripted 30-second flights, each run three times:
+Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on mains power, from the production build, one change before the current one: the waves still waited on the horizon before their last minute, and came every five minutes. The always-moving waves have not been re-measured yet; a far wave covers less of the screen than the parked one did, so I expect them to cost the same or less, but that is not checked. There were six scripted 30-second flights, each run three times:
 - walking, orbiting the camera and switching views, with and without the clocks;
 - sweeping over the sea, including an instant flick from the sky down to the water;
 - the first wave, from 22 seconds before impact to 8 seconds after, through the brace, the underwater pass and the drain;
