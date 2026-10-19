@@ -1628,8 +1628,8 @@ export class MillersPlanetApp {
         const referenceX = followAstronaut ? this.suitController.positionX : camera.x;
         const referenceZ = followAstronaut ? this.suitController.positionZ : camera.z;
         wave.setHeightFraction(state.heightFraction);
-        wave.place(wave.along(referenceX, referenceZ) + state.frontDistanceMetres + wave.settings.frontWidthMetres + wave.crestOffsetAt(referenceX, referenceZ), wave.lateral(camera.x, camera.z));
-        const secondsMoving = waveSchedule.approachSeconds - state.secondsBeforeImpact;
+        wave.place(wave.along(referenceX, referenceZ) + state.frontDistanceMetres + wave.settings.frontWidthMetres + wave.crestOffsetAt(referenceX, referenceZ), wave.lateral(camera.x, camera.z), wave.along(camera.x, camera.z));
+        const secondsMoving = waveSchedule.periodSeconds - state.secondsBeforeImpact;
         wave.motionAmount = Math.min(1, Math.max(0, secondsMoving / 2));
         wave.flowSeconds = Math.max(0, secondsMoving);
         this.updateRecedingWave(state, seconds, referenceX, referenceZ, camera);
@@ -1671,10 +1671,10 @@ export class MillersPlanetApp {
         const anchorX = anchoredAtImpact ? this.lastImpact.x : referenceX;
         const anchorZ = anchoredAtImpact ? this.lastImpact.z : referenceZ;
         receding.setHeightFraction(state.previousHeightFraction);
-        receding.place(receding.along(anchorX, anchorZ) + state.previousFrontDistanceMetres + receding.settings.frontWidthMetres + receding.crestOffsetAt(anchorX, anchorZ), receding.lateral(camera.x, camera.z));
+        receding.place(receding.along(anchorX, anchorZ) + state.previousFrontDistanceMetres + receding.settings.frontWidthMetres + receding.crestOffsetAt(anchorX, anchorZ), receding.lateral(camera.x, camera.z), receding.along(camera.x, camera.z));
         const secondsSinceImpact = seconds - impactSecondsOf(state.previousIndex);
         receding.motionAmount = 1;
-        receding.flowSeconds = waveSchedule.approachSeconds + Math.max(0, secondsSinceImpact);
+        receding.flowSeconds = waveSchedule.periodSeconds + Math.max(0, secondsSinceImpact);
         receding.writeParameters();
     }
 

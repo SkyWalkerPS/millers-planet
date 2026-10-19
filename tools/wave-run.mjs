@@ -3,6 +3,7 @@ import path from 'node:path';
 import { evidenceDirectory, openMillersPlanet, waitForMillersPlanetReady } from './target.mjs';
 import { pageExpression } from './page-results.mjs';
 import { waveLocalShapeAt } from '../src/wave/waveLocalShape.js';
+import { impactSecondsOf } from '../src/wave/waveTimeline.js';
 
 const phase = Number(process.env.PHASE || 7);
 const waveCount = Number(process.env.WAVES || 5);
@@ -22,7 +23,7 @@ const parityLateralRangeMetres = 20000;
 const parityCrestOffsetToleranceMetres = 0.05;
 const parityHeightScaleTolerance = 1e-4;
 const lateralSearchRangeMetres = 20000;
-const recedingSampleSeconds = [10.95, 11.05, 30, 60, 100, 150, 250];
+const recedingSampleSeconds = [10.95, 11.05, 30, 60, 100, 150, 235, 240, 250];
 const passingSpeedMetresPerSecond = 200;
 const fullWaveHeightMetres = 2400;
 const problems = [];
@@ -39,7 +40,7 @@ try {
       const state = await page.evaluate(pageExpression(`(async () => {
         const api = window.millersPlanet;
         api.freezeTime(null);
-        const impact = ${300 * waveIndex};
+        const impact = ${impactSecondsOf(waveIndex)};
         const targetSeconds = impact + ${shotPhase.waveSeconds};
         const skip = api.skipTo({ waveIndex: ${waveIndex}, phase: 'impact', secondsIntoPhase: ${shotPhase.waveSeconds - leadSeconds} });
         await api.renderFrames(${Math.round(leadSeconds * 60)});
@@ -63,7 +64,7 @@ try {
     }
     const blendSamples = await page.evaluate(pageExpression(`(async () => {
       const api = window.millersPlanet;
-      const impact = ${300 * waveIndex};
+      const impact = ${impactSecondsOf(waveIndex)};
       const samples = [];
       for (const [startSeconds, endSeconds] of ${JSON.stringify(cameraBlendWindows)}) {
         api.freezeTime(null);
@@ -135,7 +136,7 @@ try {
   for (const place of [calmestLateral, worstLateral]) {
     const result = await page.evaluate(pageExpression(`(async () => {
       const api = window.millersPlanet;
-      const impact = ${300 * scheduleWaveIndex};
+      const impact = ${impactSecondsOf(scheduleWaveIndex)};
       const placeAtLateral = () => {
         const wave = api.stats().wave;
         const [towardX, towardZ] = wave.toward;
@@ -181,7 +182,7 @@ try {
   }
   const recedingSamples = await page.evaluate(pageExpression(`(async () => {
     const api = window.millersPlanet;
-    const impact = 300;
+    const impact = ${impactSecondsOf(1)};
     api.freezeTime(null);
     api.debug.setAstronautPosition({ x: 0, z: 0, yawDegrees: 0 });
     const samples = [];
@@ -210,7 +211,10 @@ try {
     const expectedAhead = afterHandOver.receding.crestAheadMetres - passingSpeedMetresPerSecond * (seconds - afterHandOver.secondsAfterImpact);
     if (!sample.receding.visible || Math.abs(sample.receding.crestAheadMetres - expectedAhead) > 3) problems.push(`receding wave at T+${seconds}: visible ${sample.receding.visible}, crest ${sample.receding.crestAheadMetres.toFixed(0)} m ahead (expected ${expectedAhead.toFixed(0)})`);
   }
-  if (Math.abs(sampleAt(150).receding.heightMetres - fullWaveHeightMetres / 2) > fullWaveHeightMetres * 0.05) problems.push(`receding wave at T+150: ${sampleAt(150).receding.heightMetres.toFixed(0)} m tall (expected about half height while sinking)`);
+  if (Math.abs(sampleAt(150).receding.heightMetres - fullWaveHeightMetres) > 1) problems.push(`receding wave at T+150 (30 km): ${sampleAt(150).receding.heightMetres.toFixed(0)} m tall (expected full height)`);
+  if (Math.abs(sampleAt(235).receding.heightMetres - fullWaveHeightMetres / 2) > fullWaveHeightMetres * 0.05) problems.push(`receding wave at T+235 (47 km): ${sampleAt(235).receding.heightMetres.toFixed(0)} m tall (expected about half height while sinking)`);
+  const atNextImpact = sampleAt(240).receding;
+  if (!atNextImpact.visible || atNextImpact.heightMetres < 400 || atNextImpact.heightMetres > 900) problems.push(`when the next wave hits (T+240), the passed wave is ${atNextImpact.visible ? `${atNextImpact.heightMetres.toFixed(0)} m tall` : 'hidden'} (expected a small ridge, 400-900 m)`);
   if (sampleAt(250).receding.visible) problems.push('receding wave at T+250: still drawn after sinking');
   if (Math.abs(sampleAt(60).incoming.heightMetres - fullWaveHeightMetres) > 1) problems.push(`the next wave at T+60 is ${sampleAt(60).incoming.heightMetres.toFixed(0)} m tall (expected full height)`);
   for (const sample of recedingSamples) console.log(`T+${sample.secondsAfterImpact} s: next wave ${sample.incoming.visible ? `${(sample.incoming.crestAheadMetres / 1000).toFixed(2)} km ahead, ${sample.incoming.heightMetres.toFixed(0)} m tall` : 'hidden'}; passed wave ${sample.receding.visible ? `${(-sample.receding.crestAheadMetres / 1000).toFixed(2)} km behind, ${sample.receding.heightMetres.toFixed(0)} m tall` : 'hidden'}`);

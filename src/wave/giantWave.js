@@ -10,6 +10,7 @@ export const giantWaveSettings = {
     frontWidthMetres: 350,
     backWidthMetres: 650,
     lateralHalfExtentMetres: 30000,
+    lateralHalfExtentPerViewDistance: 6,
     glowGain: 2.0,
     raggedMetres: 9,
     lateralSegments: 256,
@@ -83,6 +84,7 @@ export class GiantWave {
         this.motionAmount = 0;
         this.flowSeconds = 0;
         this.recedingReflection = { crestAlong: 0, heightMetres: 0, enabled: false };
+        this.viewDistanceMetres = 0;
         this.setEnabled(false);
     }
 
@@ -107,7 +109,8 @@ export class GiantWave {
         return x * this.toward[1] - z * this.toward[0];
     }
 
-    place(crestAlong, lateralCentre) {
+    place(crestAlong, lateralCentre, viewAlong = crestAlong) {
+        this.viewDistanceMetres = Math.abs(crestAlong - viewAlong);
         this.previousCrestAlong = this.hasPrevious ? this.crestAlong : crestAlong;
         this.crestAlong = crestAlong;
         this.lateralCentre = lateralCentre;
@@ -206,7 +209,7 @@ export class GiantWave {
         const settings = this.settings;
         parameters.updateFloat4("crestAlongHeightEnabled", this.crestAlong, this.heightMetres, this.enabled ? 1 : 0, 0);
         parameters.updateFloat4("towardAndWidths", this.toward[0], this.toward[1], settings.frontWidthMetres, settings.backWidthMetres);
-        parameters.updateFloat4("previousCrestAlongLateralCentreHalfExtent", this.previousCrestAlong, this.lateralCentre, settings.lateralHalfExtentMetres, this.lateralOrigin);
+        parameters.updateFloat4("previousCrestAlongLateralCentreHalfExtent", this.previousCrestAlong, this.lateralCentre, Math.max(settings.lateralHalfExtentMetres, settings.lateralHalfExtentPerViewDistance * this.viewDistanceMetres), this.lateralOrigin);
         parameters.updateFloat4("glowAndRaggedness", settings.glowGain, settings.raggedMetres, this.motionAmount, this.flowSeconds);
         const receding = this.recedingReflection;
         parameters.updateFloat4("recedingCrestAlongHeightEnabled", receding.crestAlong, receding.heightMetres, receding.enabled ? 1 : 0, 0);

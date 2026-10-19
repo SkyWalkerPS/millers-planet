@@ -1,12 +1,12 @@
 # Miller's Planet
 
-A walkable, real-time recreation of the water planet from *Interstellar*, running in the browser on WebGPU. You wade as an astronaut through ankle-deep water that runs to the horizon, under a hazy overcast sky, with the black hole Gargantua hanging huge above the sea and a landed ship nearby. Every five minutes a wave more than a kilometre tall rolls in from Gargantua's direction, its thin crest glowing turquoise with the light behind it. You brace, it passes over, you spend a few seconds under water looking up through Snell's window, the water drains, and the walk goes on. Two clocks in the corner show time on the planet and on Earth, where it runs 61,362 times faster. It is built with [Babylon.js](https://www.babylonjs.com/) 9.18 and hand-written WGSL shaders, and everything you see and hear is generated in code: there are no texture, model, animation or sound files.
+A walkable, real-time recreation of the water planet from *Interstellar*, running in the browser on WebGPU. You wade as an astronaut through ankle-deep water that runs to the horizon, under a hazy overcast sky, with the black hole Gargantua hanging huge above the sea and a landed ship nearby. Every four minutes a wave more than two kilometres tall rolls in from Gargantua's direction, its thin crest glowing turquoise with the light behind it. You brace, it passes over, you spend a few seconds under water looking up through Snell's window, the water drains, and the walk goes on. Two clocks in the corner show time on the planet and on Earth, where it runs 61,362 times faster. It is built with [Babylon.js](https://www.babylonjs.com/) 9.18 and hand-written WGSL shaders, and everything you see and hear is generated in code: there are no texture, model, animation or sound files.
 
 **Built on the work of Noniv (Maksymilian Dendura):** the character, sea, sky and post-processing techniques come from his [snowflow_demo](https://github.com/Noniv/snowflow_demo) and [web-ocean](https://github.com/Noniv/web-ocean) (both MIT). See [Credits](#credits).
 
 ![The opening view: the astronaut stands in the shallow sea near the lander, with Gargantua above a clearing in the clouds](evidence/final/opening.jpg)
 
-![The wave thirty seconds out: its crest is level with Gargantua and glows turquoise](evidence/final/crest-backlit.jpg)
+![The wave 35 seconds out: its crest is level with Gargantua and glows turquoise](evidence/final/crest-backlit.jpg)
 
 ![Braced on one knee in front of the wall of water](evidence/final/wave-b-brace.jpg)
 
@@ -45,7 +45,7 @@ URL parameters, mainly for testing:
 | Parameter | Effect |
 |---|---|
 | `?scale=0.7` | Pin the internal render scale (normally automatic) |
-| `?time=280` | Freeze the clock at a time in seconds (the first wave hits at 300) |
+| `?time=220` | Freeze the clock at a time in seconds (the first wave hits at 240) |
 | `?shot=crest-backlit` | Jump to a named camera shot (the list is in `tools/shots.mjs`) |
 | `?systems=-wave,-ship` | Switch systems off: `sea`, `wave`, `astronaut`, `ship`, `gargantua`, `atmosphere`, `bloom`, `shafts`, `temporalUpscale`, `jitter` |
 | `?hud=0` | Hide the clocks |
@@ -80,7 +80,7 @@ An original design in the shape language of the film's Ranger: flat faceted plat
 
 ### The wave
 
-The wave is a scripted shape, not a fluid simulation: a steep two-sided ridge 2.4 km tall (twice the film's, for a sense of scale) and about 1 km wide, with its height and crest line varying along its 60 km length. From the start it waits 13 km away on the horizon like a hazy mountain range; a minute before impact it starts to move at about 200 m/s, and thirty seconds out its crest is level with Gargantua, then climbs over it and blots it out. The crest glows because the shader follows the view ray through the thin wedge of water at the top: the light of Gargantua and the sky behind it passes through with water's real absorption (red is lost first) plus forward scattering, so thin parts glow turquoise and the thick face stays dark. As the wall closes in, the light and the sky dim, and the sea, the suit, the visor and the lander all reflect the wall and its crest. After it passes it keeps going: turn round and you can watch it travel away at 200 m/s, still reflected in the sea, until it sinks back into the sea 20 to 40 km away. Meanwhile the next wave rises out of the sea 30 km ahead.
+The wave is a scripted shape, not a fluid simulation: a steep two-sided ridge 2.4 km tall (twice the film's, for a sense of scale) and about 1 km wide, with its height and crest line varying along a length that reaches across the whole horizon. Every wave travels at a steady 200 m/s for its whole life, so its distance is simply the speed times the time left before impact: when you load the page the first wave is 48 km away, a low hazy ridge rising out of the sea; a minute before impact it is 12 km away and looks like a mountain range; about 35 seconds out its crest is level with Gargantua, then it climbs over it and blots it out. The crest glows because the shader follows the view ray through the thin wedge of water at the top: the light of Gargantua and the sky behind it passes through with water's real absorption (red is lost first) plus forward scattering, so thin parts glow turquoise and the thick face stays dark. As the wall closes in, the light and the sky dim, and the sea, the suit, the visor and the lander all reflect the wall and its crest. After it passes it keeps going: turn round and you can watch it travel away at the same 200 m/s, still reflected in the sea. When the next wave hits, four minutes later, the old one is still on the horizon behind you, 48 km off and sinking back into the sea; it is gone 10 seconds after that. The next wave rises out of the sea 46 km ahead, 11 seconds after the last one hits.
 
 ### Under water
 
@@ -114,7 +114,7 @@ The clocks show Miller time (hours, minutes, seconds) and Earth time (years, day
 | Footstep ripples, from the same dispersion | Physically based; their damping and shapes are artistic |
 | The seabed (sand, ripple marks, stones) | Artistic |
 | Snell's window, Fresnel and water absorption | Real optics; the bright light under a 2.4 km wave is artistic |
-| The giant wave: its existence over 20 cm of water, its 2.4 km height, shape, speed, five-minute spacing, drain, and how it sinks away in the distance | Artistic |
+| The giant wave: its existence over 20 cm of water, its 2.4 km height, shape, speed, four-minute spacing, drain, and how it rises from and sinks back into the sea far away | Artistic |
 | The distance haze on the giant wave, kept to 55% so it reads as a dark range from far away | Artistic |
 | The crest's turquoise glow | Physically motivated (absorption and forward scattering), but exaggerated |
 | Light dimming under the wall, and the soft shadows | Approximations |

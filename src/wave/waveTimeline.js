@@ -1,6 +1,6 @@
 export const waveSchedule = {
-    firstImpactSeconds: 300,
-    periodSeconds: 300,
+    firstImpactSeconds: 240,
+    periodSeconds: 240,
     approachSeconds: 60,
     braceSeconds: 8,
     underwaterSeconds: 5,
@@ -9,16 +9,10 @@ export const waveSchedule = {
 
 export const wavePath = {
     heightMetres: 2400,
-    parkedDistanceMetres: 13000,
-    risingStartDistanceMetres: 30000,
-    risingSeconds: 120,
-    risingHeightSeconds: 45,
-    passingSpeedMetresPerSecond: 200,
-    approachKnotSeconds: [0, 8, 20, 60],
-    approachKnotDistances: [0, 1700, 4400, 13000],
-    approachKnotSpeeds: [200, 215, 240, 180],
-    recedingSinkStartMetres: 20000,
-    recedingSinkEndMetres: 40000,
+    speedMetresPerSecond: 200,
+    fullHeightWithinMetres: 44000,
+    vanishedBeyondMetres: 50000,
+    risingSeconds: 20,
 };
 
 export const WAVE_PHASE_CALM = 0;
@@ -41,42 +35,8 @@ export function activeWaveIndexAt(seconds, schedule = waveSchedule) {
     return Math.max(1, Math.floor((seconds - schedule.firstImpactSeconds - settleSecondsOf(schedule)) / schedule.periodSeconds) + 2);
 }
 
-function hermite(startValue, endValue, startSlope, endSlope, span, fraction) {
-    const squared = fraction * fraction;
-    const cubed = squared * fraction;
-    return (2 * cubed - 3 * squared + 1) * startValue + (cubed - 2 * squared + fraction) * span * startSlope + (-2 * cubed + 3 * squared) * endValue + (cubed - squared) * span * endSlope;
-}
-
-export function approachDistanceMetres(secondsBeforeImpact, path = wavePath) {
-    const knots = path.approachKnotSeconds;
-    const last = knots.length - 1;
-    if (secondsBeforeImpact >= knots[last]) {
-        return path.approachKnotDistances[last];
-    }
-    let segment = 0;
-    while (segment < last - 1 && secondsBeforeImpact > knots[segment + 1]) {
-        segment++;
-    }
-    const span = knots[segment + 1] - knots[segment];
-    const fraction = (secondsBeforeImpact - knots[segment]) / span;
-    return hermite(path.approachKnotDistances[segment], path.approachKnotDistances[segment + 1], path.approachKnotSpeeds[segment], path.approachKnotSpeeds[segment + 1], span, fraction);
-}
-
 export function frontDistanceMetres(waveIndex, secondsBeforeImpact, schedule = waveSchedule, path = wavePath) {
-    if (secondsBeforeImpact <= 0) {
-        return path.passingSpeedMetresPerSecond * secondsBeforeImpact;
-    }
-    if (secondsBeforeImpact <= schedule.approachSeconds) {
-        return approachDistanceMetres(secondsBeforeImpact, path);
-    }
-    if (waveIndex === 1) {
-        return path.parkedDistanceMetres;
-    }
-    const calmSeconds = schedule.periodSeconds - settleSecondsOf(schedule) - schedule.approachSeconds;
-    const secondsIntoCalm = calmSeconds - (secondsBeforeImpact - schedule.approachSeconds);
-    const fraction = Math.min(1, Math.max(0, secondsIntoCalm / path.risingSeconds));
-    const eased = 1 - (1 - fraction) * (1 - fraction) * (1 - fraction);
-    return path.risingStartDistanceMetres + (path.parkedDistanceMetres - path.risingStartDistanceMetres) * eased;
+    return path.speedMetresPerSecond * secondsBeforeImpact;
 }
 
 function smoothFraction(value) {
@@ -85,16 +45,13 @@ function smoothFraction(value) {
 }
 
 export function heightFractionOf(waveIndex, secondsBeforeImpact, schedule = waveSchedule, path = wavePath) {
-    if (secondsBeforeImpact <= 0) {
-        const distanceAway = path.passingSpeedMetresPerSecond * -secondsBeforeImpact;
-        return 1 - smoothFraction((distanceAway - path.recedingSinkStartMetres) / (path.recedingSinkEndMetres - path.recedingSinkStartMetres));
+    const distance = Math.abs(frontDistanceMetres(waveIndex, secondsBeforeImpact, schedule, path));
+    const distanceFraction = 1 - smoothFraction((distance - path.fullHeightWithinMetres) / (path.vanishedBeyondMetres - path.fullHeightWithinMetres));
+    if (secondsBeforeImpact <= 0 || waveIndex === 1) {
+        return distanceFraction;
     }
-    if (waveIndex === 1 || secondsBeforeImpact <= schedule.approachSeconds) {
-        return 1;
-    }
-    const calmSeconds = schedule.periodSeconds - settleSecondsOf(schedule) - schedule.approachSeconds;
-    const secondsIntoCalm = calmSeconds - (secondsBeforeImpact - schedule.approachSeconds);
-    return smoothFraction(secondsIntoCalm / path.risingHeightSeconds);
+    const secondsSinceAppearing = schedule.periodSeconds - settleSecondsOf(schedule) - secondsBeforeImpact;
+    return distanceFraction * smoothFraction(secondsSinceAppearing / path.risingSeconds);
 }
 
 export function createWaveState() {
