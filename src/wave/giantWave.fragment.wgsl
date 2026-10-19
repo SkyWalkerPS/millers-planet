@@ -32,7 +32,7 @@ varying vProfile: vec4f;
 
 const WAVE_ABSORPTION: vec3f = vec3f(0.30, 0.050, 0.025);
 const WAVE_CREST_SCATTERING: f32 = 0.06;
-const WAVE_BODY_ALBEDO: vec3f = vec3f(0.026, 0.040, 0.038);
+const WAVE_BODY_ALBEDO: vec3f = vec3f(0.012, 0.048, 0.056);
 
 fn waveDetailHeight(faceCoordinates: vec2f, footprint: f32) -> f32 {
     var height = 16.0 * trigonometryFreeGradientNoiseTwo(faceCoordinates * vec2f(0.006, 0.0022));

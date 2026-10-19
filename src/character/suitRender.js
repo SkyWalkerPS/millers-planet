@@ -14,14 +14,14 @@ const previousRowsOffset = 4;
 
 export const defaultSuitLook = {
     slots: [
-        { albedo: [0.6, 0.58, 0.54], roughness: 0.78, metallic: 0, sheen: 0.35, wettable: 1 },
-        { albedo: [0.16, 0.19, 0.23], roughness: 0.72, metallic: 0, sheen: 0.3, wettable: 1 },
-        { albedo: [0.68, 0.68, 0.66], roughness: 0.32, metallic: 0, sheen: 0, wettable: 0.5 },
-        { albedo: [0.055, 0.055, 0.06], roughness: 0.55, metallic: 0, sheen: 0, wettable: 0.6 },
-        { albedo: [0.72, 0.72, 0.73], roughness: 0.3, metallic: 1, sheen: 0, wettable: 0.3 },
-        { albedo: [0.5, 0.48, 0.45], roughness: 0.82, metallic: 0, sheen: 0.35, wettable: 1 },
+        { albedo: [0.8, 0.79, 0.75], roughness: 0.78, metallic: 0, sheen: 0.35, wettable: 1 },
+        { albedo: [0.1, 0.13, 0.19], roughness: 0.72, metallic: 0, sheen: 0.3, wettable: 1 },
+        { albedo: [0.86, 0.86, 0.84], roughness: 0.3, metallic: 0, sheen: 0, wettable: 0.5 },
+        { albedo: [0.075, 0.078, 0.085], roughness: 0.55, metallic: 0, sheen: 0, wettable: 0.6 },
+        { albedo: [0.58, 0.64, 0.72], roughness: 0.28, metallic: 1, sheen: 0, wettable: 0.3 },
+        { albedo: [0.66, 0.65, 0.61], roughness: 0.82, metallic: 0, sheen: 0.35, wettable: 1 },
         { albedo: [0.6, 0.58, 0.54], roughness: 0.6, metallic: 0, sheen: 0, wettable: 0.6 },
-        { albedo: [0.5, 0.5, 0.5], roughness: 0.6, metallic: 0, sheen: 0, wettable: 1 },
+        { albedo: [0.86, 0.3, 0.05], roughness: 0.6, metallic: 0, sheen: 0.2, wettable: 1 },
     ],
     wetAll: 0,
     wetBandMetres: 0.12,

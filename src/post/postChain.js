@@ -42,7 +42,7 @@ export class PostChain {
             maximumBlurRadiusPixels: 14,
             helmetRimAmount: 0,
             outputBlack: 0,
-            shadowColourBalance: [0.86, 1.0, 1.04],
+            shadowColourBalance: [0.82, 0.98, 1.08],
             shadowBalanceLumaRange: [0.15, 0.75],
         };
         this.frame = {

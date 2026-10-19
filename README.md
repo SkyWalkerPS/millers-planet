@@ -73,11 +73,11 @@ The black hole is ray traced with the same physics as my real-time Kerr black ho
 
 ### Sky, clouds and light
 
-The sky uses Sébastien Hillaire's atmosphere method, as in web-ocean: compute shaders build a transmittance table (256 × 64), multiple scattering (32 × 32), a sky view (256 × 144) and a 32³ haze volume around the camera. A procedural stratus deck 1.5 km up, baked into a 4096 × 1024 texture, covers the sky in cream overcast and opens into a clearing around Gargantua so the disk shows through. Gargantua's disk is the key light: its colour and brightness are measured from the traced patch, and it lights the scene as an area light, so shadows are soft.
+The sky uses Sébastien Hillaire's atmosphere method, as in web-ocean: compute shaders build a transmittance table (256 × 64), multiple scattering (32 × 32), a sky view (256 × 144) and a 32³ haze volume around the camera. A procedural stratus deck 1.5 km up, baked into a 4096 × 1024 texture, covers the sky in a soft grey overcast with darker cloud bellies, warm only near Gargantua, and opens into a clearing around Gargantua so the disk shows through. The haze is kept thin so the horizon stays crisp. Gargantua's disk is the key light: its colour and brightness are measured from the traced patch, and it lights the scene as an area light, so shadows are soft.
 
 ### The shallow sea
 
-The sea is three FFT cascades of 256 × 256 (7.43 m, 1.39 m and 26 cm patches) with a TMA spectrum for 20 cm of water, under the film's 1.3 g (12.75 m/s²), with 5 m/s of wind and waves about 3.5 cm high. The waves move with finite-depth capillary–gravity dispersion, so a test wave of 1.86 m turns at 5.038 rad/s against the 5.041 predicted for that depth (deep water would be 6.57). A clipmap of about 320,000 triangles follows the player. Up close you look through the slightly murky water at a procedural seabed of sand, ripple marks and stones. Further out it turns dark slate, as in the film. Rough water reflects less at grazing angles, because the facets you can see there tilt toward you, so a soft glitter path runs under Gargantua.
+The sea is three FFT cascades of 256 × 256 (7.43 m, 1.39 m and 26 cm patches) with a TMA spectrum for 20 cm of water, under the film's 1.3 g (12.75 m/s²), with 5 m/s of wind and waves about 3.5 cm high. The waves move with finite-depth capillary–gravity dispersion, so a test wave of 1.86 m turns at 5.038 rad/s against the 5.041 predicted for that depth (deep water would be 6.57). A clipmap of about 320,000 triangles follows the player. Up close you look through clear blue-green water at a procedural seabed of sand, ripple marks and stones. Further out it turns a deep sea teal. Rough water reflects less at grazing angles, because the facets you can see there tilt toward you, so a soft glitter path runs under Gargantua.
 
 ### Footsteps and wakes
 
@@ -85,11 +85,11 @@ A 512 × 512 ripple field at 2 cm per texel follows the astronaut. Each heel str
 
 ### The astronaut
 
-The suit is built like the character in snowflow_demo: a skeleton (22 bones here) and a table of rings lofted into a mesh at load time, adapted to a stiff suit with a padded torso, rigid joints, boots and a backpack (6,916 triangles for the body and 768 for the visor). The feet stay planted while they carry weight; measured over a 27-second scripted walk, no point of a sole moves more than about 1 cm while it touches the seabed. The visor is a mirror: it reflects Gargantua, the clouds, the sea and the wave.
+The suit is built like the character in snowflow_demo: a skeleton (22 bones here) and a table of rings lofted into a mesh at load time, adapted to a stiff suit with a padded torso, rigid joints, boots and a backpack with two side tanks (7,032 triangles for the body, 1,604 for the helmet and 768 for the visor). It is white with signal-orange bands on the arms and thighs, an orange stripe over the helmet, orange tank caps, a navy chest unit and belt, and blue-steel rings. The feet stay planted while they carry weight; measured over a 27-second scripted walk, no point of a sole moves more than about 1 cm while it touches the seabed. The visor is a mirror: it reflects Gargantua, the clouds, the sea and the wave.
 
 ### The lander
 
-An original design in the shape language of the film's Ranger: flat faceted plates, a thin wedge with swept wings and twin canted tail fins, an off-white top over a dark belly, no markings. It has five states: intact, beached and dented, broken with a wing torn off, scattered wreckage, and gone. After each wave it turns up 100 to 150 m downstream of where you were hit (about a two-minute walk), more damaged, and it is gone after the fourth wave. The astronaut slides along it instead of walking through it, and the camera moves in so it never passes through the hull.
+An original design in the shape language of the film's Ranger: faceted plates around a rounded 13-sided hull, a thin wedge with swept wings, twin canted tail fins and two round engine bells. It is white over a black heat-shield belly, with a charcoal band along the lower sides and the leading edges, a dark cockpit window band, and signal-orange markers on the wing and fin tips, the engine rims and a band across the top. It has five states: intact, beached and dented, broken with a wing torn off, scattered wreckage, and gone. After each wave it turns up 100 to 150 m downstream of where you were hit (a walk of a minute or so), more damaged, and it is gone after the fourth wave. The astronaut slides along it instead of walking through it, and the camera moves in so it never passes through the hull.
 
 ### The wave
 
@@ -101,7 +101,7 @@ For five seconds the camera is under the wave. Looking up, you see the sky throu
 
 ### Post-processing and resolution
 
-The scene is drawn at a lower internal resolution and brought to full size by temporal upscaling with motion vectors, then bloom, light shafts, a slight depth of field, AgX tone mapping, a gentle colour grade that cools the shadows and leaves the highlights alone (matched to the film), a vignette and film grain, following snowflow_demo. The internal resolution adapts continuously to keep the GPU inside its budget. It steers by GPU time corrected for the GPU's clock speed, because macOS lowers the clock whenever a frame finishes early, which makes raw timings read high.
+The scene is drawn at a lower internal resolution and brought to full size by temporal upscaling with motion vectors, then bloom, light shafts, a slight depth of field, AgX tone mapping, a gentle colour grade that cools the shadows and leaves the highlights alone, a vignette and film grain, following snowflow_demo. The internal resolution adapts continuously to keep the GPU inside its budget. It steers by GPU time corrected for the GPU's clock speed, because macOS lowers the clock whenever a frame finishes early, which makes raw timings read high.
 
 ### Far from the start
 
@@ -123,7 +123,7 @@ The clocks show Miller time (hours, minutes, seconds) and Earth time (years, day
 | Atmosphere scattering (Hillaire) | Physically based; the haze density, cloud deck and darkened shadow are artistic |
 | The sea's wave statistics, with finite-depth dispersion at 1.3 g, and its small-scale roughness (the clean-sea value for a 5 m/s wind) | Physically based; wave height and wind are chosen values |
 | The far water's darkness: rough water reflects less at grazing angles, because you see facets tilted toward you | Approximation, tuned to the film's stills |
-| The water's grey-green murk and the colour grade (cool shadows, untouched highlights) | Artistic, matched to the film |
+| The water's blue-green colour, the grey sky and the colour grade (cool shadows, untouched highlights) | Artistic: an earthier, ocean-like palette rather than the film's grey |
 | Footstep ripples, from the same dispersion | Physically based; their damping and shapes are artistic |
 | The seabed (sand, ripple marks, stones) | Artistic |
 | Snell's window, Fresnel and water absorption | Real optics; the bright light under a 2.4 km wave is artistic |

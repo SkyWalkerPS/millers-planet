@@ -47,11 +47,13 @@ const LANDER_SLOT_METAL: u32 = 3u;
 
 fn landerAlbedoAndRoughness(slot: u32) -> vec4f {
     switch slot {
-        case 0u: { return vec4f(0.62, 0.61, 0.58, 0.42); }
-        case 1u: { return vec4f(0.075, 0.075, 0.08, 0.55); }
-        case 2u: { return vec4f(0.015, 0.016, 0.018, 0.06); }
-        case 3u: { return vec4f(0.5, 0.5, 0.52, 0.35); }
-        case 4u: { return vec4f(0.025, 0.025, 0.028, 0.7); }
+        case 0u: { return vec4f(0.8, 0.79, 0.76, 0.4); }
+        case 1u: { return vec4f(0.045, 0.047, 0.052, 0.55); }
+        case 2u: { return vec4f(0.008, 0.013, 0.024, 0.05); }
+        case 3u: { return vec4f(0.56, 0.62, 0.7, 0.3); }
+        case 4u: { return vec4f(0.022, 0.022, 0.025, 0.7); }
+        case 6u: { return vec4f(0.15, 0.16, 0.175, 0.5); }
+        case 7u: { return vec4f(0.86, 0.3, 0.05, 0.5); }
         default: { return vec4f(0.22, 0.21, 0.2, 0.75); }
     }
 }
@@ -67,7 +69,7 @@ fn panelLines(surfaceUv: vec2f) -> f32 {
 
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {
-    let slot = u32(clamp(input.vAux.x + 0.5, 0.0, 5.0));
+    let slot = u32(clamp(input.vAux.x + 0.5, 0.0, 7.0));
     let surface = landerAlbedoAndRoughness(slot);
     var albedo = surface.rgb;
     var roughness = surface.a;

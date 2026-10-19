@@ -4,6 +4,8 @@ export const LANDER_SLOT_GLASS = 2;
 export const LANDER_SLOT_METAL = 3;
 export const LANDER_SLOT_DARK = 4;
 export const LANDER_SLOT_TORN = 5;
+export const LANDER_SLOT_CHARCOAL = 6;
+export const LANDER_SLOT_SIGNAL = 7;
 
 export const landerDimensions = {
     noseZ: 9.0,
@@ -170,24 +172,38 @@ const hullStations = [
     { z: 5.6, halfWidth: 1.55, height: 1.85 },
     { z: 3.4, halfWidth: 2.05, height: 2.45 },
     { z: 0.6, halfWidth: 2.3, height: 2.8 },
+    { z: -1.1, halfWidth: 2.33, height: 2.89 },
+    { z: -1.5, halfWidth: 2.335, height: 2.91 },
     { z: -2.4, halfWidth: 2.35, height: 2.95 },
     { z: -5.0, halfWidth: 2.2, height: 2.85 },
     { z: -7.0, halfWidth: 2.0, height: 2.6 },
 ];
 
+const hullProfile = [
+    [-0.72, 0], [-0.95, 0.17], [-1.0, 0.36], [-0.9, 0.6], [-0.66, 0.8], [-0.34, 0.95], [0, 1.0],
+    [0.34, 0.95], [0.66, 0.8], [0.9, 0.6], [1.0, 0.36], [0.95, 0.17], [0.72, 0],
+];
+const hullProfileLastIndex = hullProfile.length - 1;
+
 function hullRing(station) {
-    const width = station.halfWidth;
-    const height = station.height;
-    const z = station.z;
-    return [
-        [-0.72 * width, 0, z],
-        [-width, 0.34 * height, z],
-        [-0.55 * width, 0.86 * height, z],
-        [0, height, z],
-        [0.55 * width, 0.86 * height, z],
-        [width, 0.34 * height, z],
-        [0.72 * width, 0, z],
-    ];
+    return hullProfile.map(([across, up]) => [across * station.halfWidth, up * station.height, station.z]);
+}
+
+function hullEdgeSlot(edge, stationZ) {
+    const fromSide = Math.min(edge, hullProfileLastIndex - 1 - edge);
+    if (fromSide === 0) {
+        return LANDER_SLOT_BELLY;
+    }
+    if (fromSide === 1) {
+        return LANDER_SLOT_CHARCOAL;
+    }
+    if (fromSide === 3 && stationZ > 3.0 && stationZ < 6.8) {
+        return LANDER_SLOT_GLASS;
+    }
+    if (fromSide >= 4 && stationZ < -1.1 && stationZ > -1.5) {
+        return LANDER_SLOT_SIGNAL;
+    }
+    return LANDER_SLOT_HULL;
 }
 
 function buildHull() {
@@ -197,20 +213,15 @@ function buildHull() {
         const front = rings[station];
         const back = rings[station + 1];
         const stationZ = (hullStations[station].z + hullStations[station + 1].z) / 2;
-        const windowBand = stationZ > 3.0 && stationZ < 6.8;
-        for (let edge = 0; edge < 6; edge++) {
-            let slot = edge === 0 || edge === 5 ? LANDER_SLOT_BELLY : LANDER_SLOT_HULL;
-            if (windowBand && (edge === 1 || edge === 4)) {
-                slot = LANDER_SLOT_GLASS;
-            }
-            part.quad(front[edge], front[edge + 1], back[edge + 1], back[edge], slot);
+        for (let edge = 0; edge < hullProfileLastIndex; edge++) {
+            part.quad(front[edge], front[edge + 1], back[edge + 1], back[edge], hullEdgeSlot(edge, stationZ));
         }
-        part.quad(front[6], front[0], back[0], back[6], LANDER_SLOT_BELLY);
+        part.quad(front[hullProfileLastIndex], front[0], back[0], back[hullProfileLastIndex], LANDER_SLOT_BELLY);
     }
     const tail = rings[rings.length - 1];
     const tailCentre = [0, hullStations[hullStations.length - 1].height * 0.45, hullStations[hullStations.length - 1].z];
-    for (let edge = 0; edge < 7; edge++) {
-        part.triangle(tail[edge], tail[(edge + 1) % 7], tailCentre, LANDER_SLOT_DARK);
+    for (let edge = 0; edge < hullProfile.length; edge++) {
+        part.triangle(tail[edge], tail[(edge + 1) % hullProfile.length], tailCentre, LANDER_SLOT_DARK);
     }
     return part;
 }
@@ -231,20 +242,32 @@ function buildRearModule() {
     const back = profile(backZ, 0.88);
     for (let edge = 0; edge < 6; edge++) {
         const next = (edge + 1) % 6;
-        const slot = edge === 5 || edge === 0 ? LANDER_SLOT_BELLY : LANDER_SLOT_HULL;
+        const slot = edge === 5 || edge === 0 ? LANDER_SLOT_BELLY : edge === 1 || edge === 4 ? LANDER_SLOT_CHARCOAL : LANDER_SLOT_HULL;
         part.quad(front[edge], front[next], back[next], back[edge], slot);
     }
     for (let edge = 1; edge < 5; edge++) {
         part.triangle(back[0], back[edge + 1], back[edge], LANDER_SLOT_DARK);
     }
+    const bellSides = 14;
+    const bellCentreY = 0.92;
     for (const offsetX of [-0.6, 0.6]) {
-        const nozzle = [[offsetX - 0.38, 0.55, backZ - 0.02], [offsetX + 0.38, 0.55, backZ - 0.02], [offsetX + 0.3, 1.25, backZ - 0.02], [offsetX - 0.3, 1.25, backZ - 0.02]];
-        const deep = nozzle.map(([x, y, z]) => [offsetX + (x - offsetX) * 0.7, 0.9 + (y - 0.9) * 0.7, z + 0.35]);
-        for (let edge = 0; edge < 4; edge++) {
-            const next = (edge + 1) % 4;
-            part.quad(nozzle[edge], nozzle[next], deep[next], deep[edge], LANDER_SLOT_METAL);
+        const bellRing = (radius, z) => Array.from({ length: bellSides }, (unused, side) => {
+            const angle = (side / bellSides) * Math.PI * 2;
+            return [offsetX + Math.cos(angle) * radius, bellCentreY + Math.sin(angle) * radius, z];
+        });
+        const throat = bellRing(0.24, backZ + 0.02);
+        const mouth = bellRing(0.4, backZ - 0.55);
+        const lip = bellRing(0.43, backZ - 0.58);
+        const deep = bellRing(0.2, backZ + 0.3);
+        for (let side = 0; side < bellSides; side++) {
+            const next = (side + 1) % bellSides;
+            part.quad(throat[side], throat[next], mouth[next], mouth[side], LANDER_SLOT_METAL);
+            part.quad(mouth[side], mouth[next], lip[next], lip[side], LANDER_SLOT_SIGNAL);
+            part.quad(deep[side], deep[next], throat[next], throat[side], LANDER_SLOT_DARK);
         }
-        part.quad(deep[0], deep[1], deep[2], deep[3], LANDER_SLOT_DARK);
+        for (let side = 1; side < bellSides - 1; side++) {
+            part.triangle(deep[0], deep[side + 1], deep[side], LANDER_SLOT_DARK);
+        }
     }
     return part;
 }
@@ -269,7 +292,8 @@ function buildWing(side) {
     }
     for (let edge = 0; edge < 4; edge++) {
         const next = (edge + 1) % 4;
-        part.quad(top[edge], bottom[edge], bottom[next], top[next], edge === 3 ? LANDER_SLOT_METAL : LANDER_SLOT_HULL);
+        const edgeSlot = edge === 0 ? LANDER_SLOT_CHARCOAL : edge === 2 ? LANDER_SLOT_SIGNAL : edge === 3 ? LANDER_SLOT_CHARCOAL : LANDER_SLOT_HULL;
+        part.quad(top[edge], bottom[edge], bottom[next], top[next], edgeSlot);
     }
     return part;
 }
@@ -297,7 +321,7 @@ function buildFin(side) {
     }
     for (let edge = 0; edge < 4; edge++) {
         const next = (edge + 1) % 4;
-        part.quad(outer[edge], inner[edge], inner[next], outer[next], edge === 2 ? LANDER_SLOT_DARK : LANDER_SLOT_HULL);
+        part.quad(outer[edge], inner[edge], inner[next], outer[next], edge === 2 ? LANDER_SLOT_SIGNAL : edge === 3 ? LANDER_SLOT_CHARCOAL : LANDER_SLOT_HULL);
     }
     return part;
 }

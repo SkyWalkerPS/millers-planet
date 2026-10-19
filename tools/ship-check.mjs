@@ -2,6 +2,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { evidenceDirectory, openMillersPlanet } from './target.mjs';
 import { pageExpression } from './page-results.mjs';
+import { locomotionSettings } from '../src/character/suitController.js';
+
+const shortestWalkSeconds = 80 / locomotionSettings.walkSpeedMetresPerSecond;
+const longestWalkSeconds = 160 / locomotionSettings.walkSpeedMetresPerSecond;
 
 const phase = Number(process.env.PHASE || 6);
 const impactPoints = [[0, 0], [37.5, -12], [-140, 260], [512.25, 980.5], [-830, -415]];
@@ -41,7 +45,7 @@ try {
   }
   for (const walk of report.walks) {
     if (!walk.reached) problems.push(`the walk after wave ${walk.waveIndex} never reached the ship (${walk.finalDistanceToHullMetres.toFixed(1)} m left)`);
-    if (walk.secondsToReach < 80 || walk.secondsToReach > 160) problems.push(`the walk after wave ${walk.waveIndex} took ${walk.secondsToReach.toFixed(1)} s (expected about 2 minutes, 80-160 s)`);
+    if (walk.secondsToReach < shortestWalkSeconds || walk.secondsToReach > longestWalkSeconds) problems.push(`the walk after wave ${walk.waveIndex} took ${walk.secondsToReach.toFixed(1)} s (expected ${shortestWalkSeconds.toFixed(0)}-${longestWalkSeconds.toFixed(0)} s: 80-160 m of wading at ${locomotionSettings.walkSpeedMetresPerSecond} m/s)`);
   }
   for (const collision of report.collisions) {
     if (collision.deepestPenetrationMetres > 0.02) problems.push(`state ${collision.state} (${collision.stateName}): a body sphere sank ${(collision.deepestPenetrationMetres * 100).toFixed(1)} cm into ${collision.deepestPenetrationBox} (limit 2 cm); ${collision.framesOverTwoCentimetres} frames over`);

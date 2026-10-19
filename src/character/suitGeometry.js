@@ -16,6 +16,7 @@ export const SLOT_RUBBER = 3;
 export const SLOT_METAL = 4;
 export const SLOT_BELLOWS = 5;
 export const SLOT_PATCH = 6;
+export const SLOT_SIGNAL = 7;
 
 const segmentsForLimbs = 20;
 const segmentsForTorso = 28;
@@ -246,9 +247,9 @@ function buildTorso(builder) {
         [1.48, 0.17, 0.135, 0.7],
         [1.505, 0.13, 0.12, 0.6],
     ];
-    const rings = table.map(([y, across, depth, occlusion]) => ring(0, y, 0, across, depth, occlusion, torsoBones(y), 2.6));
+    const rings = table.map(([y, across, depth, occlusion]) => ring(0, y, 0, across, depth, occlusion, torsoBones(y), 2.3));
     loft(builder, rings, SLOT_SUIT_FABRIC, [0, 0, 1], segmentsForTorso, true, false);
-    const beltRings = [0.965, 0.99, 1.015].map((y, index) => ring(0, y, 0, 0.183 + (index === 1 ? 0.006 : 0), 0.147 + (index === 1 ? 0.006 : 0), 0.62, torsoBones(y), 2.6));
+    const beltRings = [0.965, 0.99, 1.015].map((y, index) => ring(0, y, 0, 0.183 + (index === 1 ? 0.006 : 0), 0.147 + (index === 1 ? 0.006 : 0), 0.62, torsoBones(y), 2.3));
     loft(builder, beltRings, SLOT_ACCENT_FABRIC, [0, 0, 1], segmentsForTorso, false, false);
 }
 
@@ -271,6 +272,37 @@ function buildHelmet(builder) {
     loft(builder, rings, SLOT_HARD_SHELL, [0, 0, 1], segmentsForTorso, false, true);
 }
 
+function buildHelmetStripe(builder) {
+    const [centreX, centreY, centreZ] = bindJointPosition(BONE_HELMET);
+    const stripeRadius = 0.1665;
+    const rings = [];
+    const steps = 32;
+    for (let stepIndex = 0; stepIndex <= steps; stepIndex++) {
+        const angleFromForward = ((45 + (205 - 45) * (stepIndex / steps)) * Math.PI) / 180;
+        rings.push(ring(centreX, centreY + Math.sin(angleFromForward) * stripeRadius, centreZ + Math.cos(angleFromForward) * stripeRadius, 0.0035, 0.024, 0.85, [BONE_HELMET, 1, 0, 0], 4));
+    }
+    loft(builder, rings, SLOT_SIGNAL, [1, 0, 0], 12, true, true);
+}
+
+function buildBackpackTanks(builder) {
+    for (const side of [-1, 1]) {
+        const x = side * 0.19;
+        const z = -0.272;
+        const tank = [[1.03, 0.03], [1.05, 0.044], [1.4, 0.044], [1.42, 0.03]].map(([y, radius]) => ring(x, y, z, radius, radius, 0.75, [BONE_CHEST, 1, 0, 0]));
+        loft(builder, tank, SLOT_METAL, [0, 0, 1], 16, true, false);
+        const cap = [[1.415, 0.038], [1.43, 0.04], [1.455, 0.034], [1.465, 0.02]].map(([y, radius]) => ring(x, y, z, radius, radius, 0.8, [BONE_CHEST, 1, 0, 0]));
+        loft(builder, cap, SLOT_SIGNAL, [0, 0, 1], 16, false, true);
+    }
+}
+
+function limbBandRings(start, end, startRadius, endRadius, tFrom, tTo, raisedBy, bones, occlusion) {
+    return [0, 0.15, 0.85, 1].map((fraction, index) => {
+        const t = tFrom + (tTo - tFrom) * fraction;
+        const radius = startRadius + (endRadius - startRadius) * t + (index === 0 || index === 3 ? raisedBy * 0.4 : raisedBy);
+        return ring(start[0] + (end[0] - start[0]) * t, start[1] + (end[1] - start[1]) * t, start[2] + (end[2] - start[2]) * t, radius, radius, occlusion, bones);
+    });
+}
+
 function buildBackpack(builder) {
     const centreZ = -0.235;
     const table = [[0.98, 0.15, 0.06], [1.0, 0.185, 0.08], [1.06, 0.19, 0.085], [1.24, 0.19, 0.088], [1.42, 0.188, 0.085], [1.48, 0.18, 0.078], [1.5, 0.15, 0.06]];
@@ -281,7 +313,7 @@ function buildBackpack(builder) {
 function buildChestUnit(builder) {
     const table = [[1.15, 0.085, 0.022], [1.16, 0.1, 0.035], [1.27, 0.1, 0.035], [1.28, 0.085, 0.022]];
     const rings = table.map(([y, across, depth]) => ring(0, y, 0.178, across, depth, 0.8, [BONE_CHEST, 1, 0, 0], 5));
-    loft(builder, rings, SLOT_HARD_SHELL, [0, 0, 1], 20, true, true);
+    loft(builder, rings, SLOT_ACCENT_FABRIC, [0, 0, 1], 20, true, true);
     const patchRings = [[1.355, 0.035], [1.365, 0.04], [1.375, 0.035]].map(([y, across]) => ring(0.11, y, 0.152, across, 0.012, 0.85, [BONE_CHEST, 1, 0, 0], 2));
     loft(builder, patchRings, SLOT_PATCH, [0, 0, 1], 16, true, true);
 }
@@ -298,6 +330,7 @@ function buildArm(builder, side, upperBone, foreBone, handBone, elbowBone) {
     const upper = segmentRings(shoulder, elbow, 0.078, 0.066, 8, upperBone, elbowBone, 0.72, 1.0, 0.62, { from: 0.74, to: 1.0, ridges: 2, amplitude: 0.006 });
     const fore = segmentRings(elbow, wrist, 0.066, 0.055, 7, elbowBone, foreBone, 0.0, 0.28, 0.66, { from: 0.0, to: 0.24, ridges: 1.5, amplitude: 0.006 });
     loft(builder, upper.concat(fore.slice(1)), SLOT_SUIT_FABRIC, [0, 0, 1], segmentsForLimbs, false, false);
+    loft(builder, limbBandRings(shoulder, elbow, 0.078, 0.066, 0.3, 0.42, 0.006, [upperBone, 1, 0, 0], 0.66), SLOT_SIGNAL, [0, 0, 1], segmentsForLimbs, false, false);
     const direction = [(wrist[0] - elbow[0]) / suitProportions.forearmLengthMetres, (wrist[1] - elbow[1]) / suitProportions.forearmLengthMetres, (wrist[2] - elbow[2]) / suitProportions.forearmLengthMetres];
     const along = (distance) => [wrist[0] + direction[0] * distance, wrist[1] + direction[1] * distance, wrist[2] + direction[2] * distance];
     const wristRing = [[-0.015, 0.058], [0.0, 0.064], [0.015, 0.058]].map(([distance, radius]) => {
@@ -327,6 +360,7 @@ function buildLeg(builder, side, thighBone, shinBone, footBone, kneeBone) {
     const shinSteps = 7;
     const shin = segmentRings(knee, shinEnd, 0.094, 0.082, shinSteps, kneeBone, shinBone, 0.0, 0.3, 0.6, { from: 0.0, to: 0.22, ridges: 1.5, amplitude: 0.007 });
     loft(builder, thigh.concat(shin.slice(1)), SLOT_SUIT_FABRIC, [0, 0, 1], segmentsForLimbs, true, false);
+    loft(builder, limbBandRings(thighTop, knee, 0.118, 0.094, 0.32, 0.44, 0.007, [thighBone, 1, 0, 0], 0.62), SLOT_SIGNAL, [0, 0, 1], segmentsForLimbs, false, false);
     const kneePad = [[0.04, 0.03], [0.02, 0.05], [0.0, 0.055], [-0.03, 0.045], [-0.05, 0.03]].map(([offset, radius]) => ring(knee[0], knee[1] + offset, knee[2] + 0.085, radius, 0.014, 0.8, [kneeBone, 1, 0, 0], 2.4));
     loft(builder, kneePad, SLOT_HARD_SHELL, [0, 0, 1], 14, true, true);
     const bootShaft = [[0.21, 0.086, 0.088, shinBone, 0.6], [0.19, 0.09, 0.094, shinBone, 0.4], [0.16, 0.084, 0.09, footBone, 0.2], [0.12, 0.078, 0.086, footBone, 0.0]].map(([y, across, depth, bone, shinWeight]) => {
@@ -345,6 +379,7 @@ function buildLeg(builder, side, thighBone, shinBone, footBone, kneeBone) {
 export function buildHelmetShellGeometry() {
     const builder = new MeshBuilder();
     buildHelmet(builder);
+    buildHelmetStripe(builder);
     return builder.finish();
 }
 
@@ -353,6 +388,7 @@ export function buildSuitGeometry() {
     buildTorso(builder);
     buildNeckRing(builder);
     buildBackpack(builder);
+    buildBackpackTanks(builder);
     buildChestUnit(builder);
     buildArm(builder, -1, BONE_UPPER_ARM_LEFT, BONE_FOREARM_LEFT, BONE_HAND_LEFT, BONE_ELBOW_LEFT);
     buildArm(builder, 1, BONE_UPPER_ARM_RIGHT, BONE_FOREARM_RIGHT, BONE_HAND_RIGHT, BONE_ELBOW_RIGHT);

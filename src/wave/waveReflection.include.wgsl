@@ -46,7 +46,7 @@ fn applyWaveCoverage(radiance: vec3f, cover: vec4f, crestHeight: f32, glowScale:
     if (cover.x <= 0.0) {
         return radiance;
     }
-    let body = skyIrradiance * vec3f(0.026, 0.040, 0.038) * (0.75 / ATMOSPHERE_PI);
+    let body = skyIrradiance * vec3f(0.012, 0.048, 0.056) * (0.75 / ATMOSPHERE_PI);
     let mist = skyIrradiance * (0.62 / ATMOSPHERE_PI);
     let face = mix(mist, body, smoothstep(0.0, 0.05, cover.y));
     let hazeAmount = (1.0 - exp(-cover.w / 9000.0)) * WAVE_HAZE_KEPT;

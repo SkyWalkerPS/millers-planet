@@ -34,6 +34,11 @@ try {
   const expectedWidth = Math.round(viewport.width * viewport.deviceScaleFactor);
   const expectedHeight = Math.round(viewport.height * viewport.deviceScaleFactor);
   console.log(`Shooting ${shots.length} shot(s) from ${target.server.description}`);
+  if (process.env.LOOK) {
+    const look = await page.evaluate(pageExpression(`window.millersPlanet.debug.setLook(${process.env.LOOK})`), { timeoutMs: 120000 });
+    console.log(`Look applied from LOOK: ${process.env.LOOK}`);
+    if (!look) throw new Error('setLook returned nothing');
+  }
   console.log(`Window ${viewport.width}x${viewport.height} at ${viewport.deviceScaleFactor}x, render scale ${scaleSetting === 'live' ? 'live (controller)' : `pinned to ${scaleSetting}`}, ${settleFrameCount} settle frames per shot, writing to ${outputDirectory}\n`);
   const orderedShots = [...shots.filter((shot) => shot.kind === 'freshLoad'), ...shots.filter((shot) => shot.kind !== 'freshLoad')];
   let pageIsFresh = true;
