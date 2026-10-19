@@ -139,6 +139,7 @@ Measured without corrections, the GPU time reads higher: 11 to 15 ms (p99), with
 
 - Desktop Chrome and Edge only (WebGPU); no phones, tablets, Safari or Firefox.
 - Smoothness was measured in headless Chrome, not on a real display, at 120 Hz, or in a recording.
+- About once in every six to ten 30-second runs, one frame arrives late (33 ms) while the view is mostly bright sky, just as macOS lowers the GPU clock. The cause is unknown.
 - No splash droplets: water contact shows as wakes, rings and whitewater.
 - The sea reflects the sky and the wave, but not the ship or the astronaut, so from far away the lander can look as if it stands on the water.
 - Shadows are soft stand-ins cast by simple shapes; nothing shadows itself.
