@@ -8,8 +8,8 @@ import { normaliseFrameLog, pageExpression } from './page-results.mjs';
 import { formatNumber, formatTable, median, summarise } from './stats.mjs';
 
 export const FLIGHT_PASS_RULE = {
-  spanP99MaxMs: 14.0,
-  spanMaxMs: 16.6,
+  fullClockGpuTimeP99MaxMs: 14.0,
+  fullClockGpuTimeMaxMs: 16.6,
   intervalMaxMs: 16.8,
   intervalEpsilonMs: 0.05,
   scaleMedianMin: 0.7,
@@ -130,10 +130,40 @@ async function jumpCamera(page, pose) {
   })()`);
 }
 
+const timedFrameLogReadExpression = (sinceFrameIndex) => `(() => {
+  const startedMs = performance.now();
+  const text = JSON.stringify(window.millersPlanet.frameLog(${sinceFrameIndex}));
+  const endedMs = performance.now();
+  (window.harnessFrameLogReads ||= []).push({ startedMs, endedMs, characters: text.length });
+  return text;
+})()`;
+
 async function readFrameLogInto(page, sinceFrameIndex, recordsByFrameIndex) {
-  const log = normaliseFrameLog(await page.evaluate(pageExpression(`window.millersPlanet.frameLog(${sinceFrameIndex})`)));
+  const log = normaliseFrameLog(JSON.parse(await page.evaluate(timedFrameLogReadExpression(sinceFrameIndex))));
   for (const record of log.records) recordsByFrameIndex.set(record.frameIndex, record);
   return log;
+}
+
+function describeFrameGaps(records, harnessReads, markers) {
+  const startPageMs = markers[0]?.timeMs ?? records[0]?.rafTimeMs ?? 0;
+  const gaps = [];
+  for (let index = 1; index < records.length; index++) {
+    const previous = records[index - 1];
+    const current = records[index];
+    if (current.frameIndex !== previous.frameIndex + 1) continue;
+    const intervalMs = current.rafTimeMs - previous.rafTimeMs;
+    if (intervalMs <= FLIGHT_PASS_RULE.intervalMaxMs + FLIGHT_PASS_RULE.intervalEpsilonMs) continue;
+    const overlappingReads = harnessReads.filter((read) => read.endedMs > previous.rafTimeMs && read.startedMs < current.rafTimeMs);
+    gaps.push({
+      frameIndex: current.frameIndex,
+      flightSeconds: Math.round((current.rafTimeMs - startPageMs) / 10) / 100,
+      intervalMs: Math.round(intervalMs * 100) / 100,
+      duringFrameLogRead: overlappingReads.length > 0,
+      frameLogReadMs: overlappingReads.map((read) => Math.round((read.endedMs - read.startedMs) * 100) / 100),
+    });
+  }
+  const readDurations = harnessReads.map((read) => read.endedMs - read.startedMs);
+  return { gaps, frameLogReads: harnessReads.length, frameLogReadMaxMs: readDurations.length ? Math.max(...readDurations) : 0 };
 }
 
 function framesInSegment(records, markers, markerIndex) {
@@ -169,7 +199,7 @@ function analyseStepResponse(records, markers, timeline) {
     scaleBeforeStep: median(beforeFrames.slice(-30).map((record) => record.scale)),
     scaleMinAfterStep: Math.min(...windowFrames.map((record) => record.scale)),
     maxSpanInWindowMs: Math.max(...windowFrames.map((record) => record.gpuSpanMs)),
-    framesOverSpanMaxInWindow: windowFrames.filter((record) => record.gpuSpanMs > FLIGHT_PASS_RULE.spanMaxMs).length,
+    framesOverSpanMaxInWindow: windowFrames.filter((record) => record.gpuSpanMs > FLIGHT_PASS_RULE.fullClockGpuTimeMaxMs).length,
     framesOverTargetBeforeRecovery: afterFrames.slice(0, recoveryFrame ?? afterFrames.length).filter((record) => record.gpuSpanMs > CONTROLLER_TARGET_MS).length,
     framesToRecover: recoveryFrame,
     targetMs: CONTROLLER_TARGET_MS,
@@ -194,6 +224,9 @@ export function analyseFlight({ records, firstFrameIndex, lastFrameIndex, marker
   const busy = presentRecords.map((record) => record.gpuBusyMs).filter(Number.isFinite);
   const clockSlowdowns = presentRecords.map((record) => record.clockSlowdown).filter((value) => Number.isFinite(value) && value > 0);
   const normalizedSpans = presentRecords.filter((record) => Number.isFinite(record.gpuSpanMs) && record.clockSlowdown > 0).map((record) => record.gpuSpanMs / Math.max(record.clockSlowdown, 1));
+  const clockDividerOf = (record) => (Number.isFinite(record.clockSlowdown) && record.clockSlowdown > 1 ? record.clockSlowdown : 1);
+  const fullClockGpuTimes = presentRecords.filter((record) => Number.isFinite(record.gpuBusyMs)).map((record) => record.gpuBusyMs / clockDividerOf(record));
+  const framesWithoutClockReading = presentRecords.filter((record) => !(Number.isFinite(record.clockSlowdown) && record.clockSlowdown > 0)).length;
   const intervals = [];
   for (let index = 1; index < presentRecords.length; index++) {
     const previous = presentRecords[index - 1];
@@ -205,12 +238,13 @@ export function analyseFlight({ records, firstFrameIndex, lastFrameIndex, marker
   let reallocations = 0;
   for (let index = 1; index < generations.length; index++) if (generations[index] !== generations[index - 1]) reallocations++;
   const spanSummary = summarise(spans);
+  const fullClockGpuTimeSummary = summarise(fullClockGpuTimes);
   const intervalSummary = summarise(intervals.map((entry) => entry.intervalMs));
   const scaleSummary = summarise(scales);
   const rule = FLIGHT_PASS_RULE;
   const verdicts = [
-    { metric: 'GPU span p99 (ms)', value: spanSummary.p99, limit: `<= ${rule.spanP99MaxMs}`, pass: spanSummary.p99 <= rule.spanP99MaxMs, worse: 'higher' },
-    { metric: 'GPU span max (ms)', value: spanSummary.max, limit: `<= ${rule.spanMaxMs}`, pass: spanSummary.max <= rule.spanMaxMs, worse: 'higher' },
+    { metric: 'GPU time at full clock p99 (ms)', value: fullClockGpuTimeSummary.p99, limit: `<= ${rule.fullClockGpuTimeP99MaxMs}`, pass: fullClockGpuTimeSummary.p99 <= rule.fullClockGpuTimeP99MaxMs, worse: 'higher' },
+    { metric: 'GPU time at full clock max (ms)', value: fullClockGpuTimeSummary.max, limit: `<= ${rule.fullClockGpuTimeMaxMs}`, pass: fullClockGpuTimeSummary.max <= rule.fullClockGpuTimeMaxMs, worse: 'higher' },
     { metric: 'frame interval max (ms)', value: intervalSummary.max, limit: `<= ${rule.intervalMaxMs} (+${rule.intervalEpsilonMs} for 0.1 ms rAF steps)`, pass: intervalSummary.max <= rule.intervalMaxMs + rule.intervalEpsilonMs, worse: 'higher' },
     { metric: 'render scale median', value: scaleSummary.p50, limit: `>= ${rule.scaleMedianMin}`, pass: scaleSummary.p50 >= rule.scaleMedianMin, worse: 'lower' },
     { metric: 'render scale min', value: scaleSummary.min, limit: `>= ${rule.scaleMinMin}`, pass: scaleSummary.min >= rule.scaleMinMin, worse: 'lower' },
@@ -224,7 +258,9 @@ export function analyseFlight({ records, firstFrameIndex, lastFrameIndex, marker
     busy: summarise(busy),
     clockSlowdown: summarise(clockSlowdowns),
     normalizedSpan: summarise(normalizedSpans),
-    framesOverSpanMax: spans.filter((value) => value > rule.spanMaxMs).length,
+    fullClockGpuTime: fullClockGpuTimeSummary,
+    framesWithoutClockReading,
+    framesOverSpanMax: spans.filter((value) => value > rule.fullClockGpuTimeMaxMs).length,
     interval: intervalSummary,
     intervalsMeasured: intervals.length,
     intervalsOverLimit: intervals.filter((entry) => entry.intervalMs > rule.intervalMaxMs + rule.intervalEpsilonMs).length,
@@ -313,6 +349,8 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
     const finalLog = await readFrameLogInto(page, Math.max(latestBeforeFlight, highestSeenFrameIndex - LOG_OVERLAP_FRAMES), recordsByFrameIndex);
     const records = [...recordsByFrameIndex.values()].filter((record) => record.frameIndex > latestBeforeFlight && record.frameIndex <= latestAtStop).sort((a, b) => a.frameIndex - b.frameIndex);
     const analysis = analyseFlight({ records, firstFrameIndex: latestBeforeFlight + 1, lastFrameIndex: latestAtStop, markers, timeline });
+    const harnessReads = await page.evaluate('(window.harnessFrameLogReads || []).slice()');
+    analysis.frameGaps = describeFrameGaps(records, harnessReads, markers);
     const statsAfter = await page.evaluate(pageExpression('(() => { const stats = window.millersPlanet.stats(); return { gpuErrors: stats.gpuErrors || [], deviceLost: stats.deviceLost, gpu: stats.gpu || {} }; })()'));
     return {
       runNumber,
@@ -330,6 +368,7 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
         rafTimeMs: records.map((record) => record.rafTimeMs),
         gpuSpanMs: records.map((record) => record.gpuSpanMs),
         gpuBusyMs: records.map((record) => record.gpuBusyMs),
+        clockSlowdown: records.map((record) => record.clockSlowdown),
         scale: records.map((record) => record.scale),
         generation: records.map((record) => record.generation),
         wavePhaseCode: records.map((record) => record.wavePhaseCode),
@@ -390,15 +429,17 @@ if (isMainModule) {
       console.log(`\nRun ${runNumber} of ${runCount}: ${analysis.timedFrameCount} timed frames of ${analysis.expectedFrameCount} rendered (${(analysis.expectedFrameCount / flightSeconds).toFixed(1)} fps), GPU busy before the run ${run.gpuLoadBefore.medianPercent ?? '?'}%`);
       if (run.otherHeadlessChromeBefore.status !== 'PASS') console.log(`  WARNING before this run: ${run.otherHeadlessChromeBefore.detail}`);
       console.log(formatVerdictTable(analysis));
-      console.log(`  span p50 ${formatNumber(analysis.span.p50)} / p95 ${formatNumber(analysis.span.p95)} ms, busy p99 ${formatNumber(analysis.busy.p99)} ms, ${analysis.framesOverSpanMax} frame(s) over ${FLIGHT_PASS_RULE.spanMaxMs} ms`);
-      if (analysis.clockSlowdown.count) console.log(`  GPU clock slowdown (fixed-cost passes vs the fastest seen) p50 ${formatNumber(analysis.clockSlowdown.p50)} / max ${formatNumber(analysis.clockSlowdown.max)}; span at full clock p50 ${formatNumber(analysis.normalizedSpan.p50)} / p99 ${formatNumber(analysis.normalizedSpan.p99)} / max ${formatNumber(analysis.normalizedSpan.max)} ms (diagnostic, not the pass rule)`);
+      const frameGaps = analysis.frameGaps;
+      console.log(`  frame gaps over the limit: ${frameGaps.gaps.length}${frameGaps.gaps.length ? ` (${frameGaps.gaps.map((gap) => `${gap.intervalMs} ms at ${gap.flightSeconds} s${gap.duringFrameLogRead ? `, during a frame-log read of ${gap.frameLogReadMs.join(' + ')} ms` : ', no frame-log read at the time'}`).join('; ')})` : ''}; ${frameGaps.frameLogReads} frame-log reads by this tool, longest ${formatNumber(frameGaps.frameLogReadMaxMs)} ms on the page`);
+      console.log(`  measured GPU time (diagnostic, the Mac lowers its GPU clock when there is spare time): span p50 ${formatNumber(analysis.span.p50)} / p99 ${formatNumber(analysis.span.p99)} / max ${formatNumber(analysis.span.max)} ms, busy p99 ${formatNumber(analysis.busy.p99)} ms, ${analysis.framesOverSpanMax} frame(s) over ${FLIGHT_PASS_RULE.fullClockGpuTimeMaxMs} ms`);
+      if (analysis.clockSlowdown.count) console.log(`  GPU clock slowdown (fixed-cost passes vs the fastest seen) p50 ${formatNumber(analysis.clockSlowdown.p50)} / max ${formatNumber(analysis.clockSlowdown.max)}; GPU time at full clock (busy / slowdown, the pass rule) p50 ${formatNumber(analysis.fullClockGpuTime.p50)} / p99 ${formatNumber(analysis.fullClockGpuTime.p99)} / max ${formatNumber(analysis.fullClockGpuTime.max)} ms; span at full clock p50 ${formatNumber(analysis.normalizedSpan.p50)} / p99 ${formatNumber(analysis.normalizedSpan.p99)} / max ${formatNumber(analysis.normalizedSpan.max)} ms; ${analysis.framesWithoutClockReading} frame(s) without a clock reading (counted at the measured time)`);
       console.log(`  interval p50 ${formatNumber(analysis.interval.p50)} / p99 ${formatNumber(analysis.interval.p99)} ms over ${analysis.intervalsMeasured} measured intervals, ${analysis.intervalsOverLimit} over the limit; scale max ${formatNumber(analysis.scale.max, 3)}; render-target reallocations ${analysis.reallocations}`);
       console.log(`  slowest frames (span, with GPU busy time in brackets; a big difference means idle gaps inside the frame): ${analysis.slowestFrames.map((frame) => `${formatNumber(frame.gpuSpanMs)} ms (busy ${formatNumber(frame.gpuBusyMs)}) at ${frame.flightSeconds} s (${frame.segment}, scale ${formatNumber(frame.scale, 3)})`).join('; ')}`);
       console.log(`  longest intervals: ${analysis.longestIntervals.map((entry) => `${formatNumber(entry.intervalMs)} ms at ${entry.flightSeconds} s (${entry.segment})`).join('; ')}`);
       console.log(`  per segment (frames, median / max span ms, median scale):\n${analysis.segments.map((segment) => `    ${segment.label}: ${segment.frames}, ${formatNumber(segment.spanMedianMs)} / ${formatNumber(segment.spanMaxMs)}, ${formatNumber(segment.scaleMedian, 3)}`).join('\n')}`);
       const step = analysis.stepResponse;
       if (step && !step.error) {
-        console.log(`  step from sky only to full ground: median span ${formatNumber(step.skyOnlySpanMedianMs)} -> ${formatNumber(step.fullGroundSpanMedianMs)} ms, scale ${formatNumber(step.scaleBeforeStep, 3)} -> min ${formatNumber(step.scaleMinAfterStep, 3)}; in the first ${step.windowMs / 1000} s max span ${formatNumber(step.maxSpanInWindowMs)} ms, ${step.framesOverSpanMaxInWindow} frame(s) over ${FLIGHT_PASS_RULE.spanMaxMs} ms; ${step.framesOverTargetBeforeRecovery} frame(s) over the ${step.targetMs} ms target before ${step.framesToRecover === null ? 'it never settled' : `it settled after ${step.framesToRecover} frame(s)`}`);
+        console.log(`  step from sky only to full ground: median span ${formatNumber(step.skyOnlySpanMedianMs)} -> ${formatNumber(step.fullGroundSpanMedianMs)} ms, scale ${formatNumber(step.scaleBeforeStep, 3)} -> min ${formatNumber(step.scaleMinAfterStep, 3)}; in the first ${step.windowMs / 1000} s max span ${formatNumber(step.maxSpanInWindowMs)} ms, ${step.framesOverSpanMaxInWindow} frame(s) over ${FLIGHT_PASS_RULE.fullClockGpuTimeMaxMs} ms; ${step.framesOverTargetBeforeRecovery} frame(s) over the ${step.targetMs} ms target before ${step.framesToRecover === null ? 'it never settled' : `it settled after ${step.framesToRecover} frame(s)`}`);
         if (!step.directionLooksRight) console.log('  WARNING: the "sky only" view was not cheaper than the "full ground" view. Check that a positive pitchDegrees in debug.setOrbitCamera looks up.');
       } else if (step?.error) {
         console.log(`  step response: ${step.error}`);
