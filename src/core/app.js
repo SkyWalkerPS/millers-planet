@@ -26,7 +26,6 @@ import { temporarySkyLook } from "../sky/skyLook.js";
 import { SeaSimulation } from "../sea/seaSimulation.js";
 import { SeaSurface } from "../sea/seaSurface.js";
 import { RippleField } from "../sea/rippleField.js";
-import { WaveReservation } from "../wave/waveReservation.js";
 import { GiantWave } from "../wave/giantWave.js";
 import { UnderwaterView } from "../wave/underwaterView.js";
 import { WAVE_PHASE_BRACE, createWaveState, impactSecondsOf, secondsForPhase, waveSchedule, waveStateAt, wavePhaseLetters } from "../wave/waveTimeline.js";
@@ -56,6 +55,8 @@ for (let level = 0; level < 8; level++) {
 }
 const transparentBlack = { r: 0, g: 0, b: 0, a: 0 };
 const helmetProxyRadiusMetres = 0.17;
+const cameraJumpCosine = Math.cos(25 * degreesToRadians);
+const cameraJumpPreemptiveCut = 0.2;
 const waveCropBands = { halfWidthMetres: 60, crestDepthsMetres: [18, 45], faceDepthsMetres: [250, 500] };
 
 function easeInOut(fraction) {
@@ -196,13 +197,6 @@ export class MillersPlanetApp {
         this.cameraRig.obstacleBoxes = this.suitController.obstacleBoxes;
         this.placeOpeningShip();
         this.placeAstronaut(0, 0, openingYawRadians);
-        this.waveReservation = new WaveReservation({
-            scene: this.scene,
-            frameUniforms: this.frameUniforms,
-            atmosphere: this.atmosphere,
-            simulation: this.seaSimulation,
-            travelDirection: this.seaSimulation.settings.windTravelDirection,
-        });
         const [waveTravelX, waveTravelZ] = this.seaSimulation.settings.windTravelDirection;
         this.giantWave = new GiantWave({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, toward: [-waveTravelX, -waveTravelZ] });
         for (const material of [this.seaSurface.material, ...this.suitRenderer.materials, this.lander.material]) {
@@ -232,6 +226,9 @@ export class MillersPlanetApp {
 
         this.frameIndex = 0;
         this.liveLoopPausedCount = 0;
+        this.liveLoopPausedByHarness = false;
+        this.previousCameraForward = new Float64Array(3);
+        this.previousCameraForwardValid = false;
         this.lastRafTimeMilliseconds = 0;
         this.lastRenderedRafTimeMilliseconds = -1;
         this.pipelinesCreatedLastFrame = 0;
@@ -253,7 +250,6 @@ export class MillersPlanetApp {
             gargantua: true,
             atmosphere: true,
             sea: true,
-            waveReservation: false,
             wave: false,
             astronaut: true,
             ship: true,
@@ -296,7 +292,7 @@ export class MillersPlanetApp {
     }
 
     materialsSamplingGargantua() {
-        return [this.skyDome.material, this.seaSurface.material, ...this.waveReservation.materials, ...this.giantWave.materials, this.underwaterView.material, ...this.suitRenderer.materials, this.lander.material];
+        return [this.skyDome.material, this.seaSurface.material, ...this.giantWave.materials, this.underwaterView.material, ...this.suitRenderer.materials, this.lander.material];
     }
 
     async measureAndApplyKeyLight() {
@@ -843,8 +839,6 @@ export class MillersPlanetApp {
         } else if (name === "sea") {
             this.seaSimulation.enabled = isOn;
             this.seaSurface.mesh.setEnabled(isOn);
-        } else if (name === "waveReservation") {
-            this.waveReservation.setEnabled(isOn);
         } else if (name === "wave") {
             this.giantWave.setEnabled(isOn);
             this.giantWave.discardHistory();
@@ -905,7 +899,6 @@ export class MillersPlanetApp {
             this.setSystemEnabled(systemName, false);
         }
         const shownSystems = definition.shownSystems ?? [];
-        this.setSystemEnabled("waveReservation", shownSystems.includes("waveReservation"));
         this.setSystemEnabled("wave", shownSystems.includes("wave"));
         if (freezeTime) {
             this.clock.freeze(definition.timeSeconds);
@@ -927,7 +920,6 @@ export class MillersPlanetApp {
         this.cameraTransition = null;
         this.setSystemEnabled("testGeometry", false);
         this.setSystemEnabled("sea", true);
-        this.setSystemEnabled("waveReservation", false);
         this.setSystemEnabled("wave", true);
         this.setSystemEnabled("astronaut", true);
         this.setSystemEnabled("ship", true);
@@ -1139,6 +1131,7 @@ export class MillersPlanetApp {
             this.cameraPose.yawRadians = pose.yawRadians;
             this.cameraPose.pitchRadians = pose.pitchRadians;
             this.cameraPose.verticalFieldOfViewRadians = (pose.verticalFieldOfViewDegrees ?? definition.verticalFieldOfViewDegrees) * degreesToRadians;
+            this.postChain.settings.helmetRimAmount = 0;
             this.updateHelmetVisibility();
         } else {
             this.cameraRig.update(0, this.suitController, this.suitFigure, 0, 0, this.seaSurface.settings.waterLevelMetres);
@@ -1826,8 +1819,24 @@ export class MillersPlanetApp {
             }
         }
         const pose = this.cameraPose;
+        this.anticipateCameraJump(pose);
         this.cameraFrame.setPose(pose.position[0], pose.position[1], pose.position[2], pose.yawRadians, pose.pitchRadians);
         this.cameraFrame.setVerticalFieldOfView(pose.verticalFieldOfViewRadians);
+    }
+
+    anticipateCameraJump(pose) {
+        const cosinePitch = Math.cos(pose.pitchRadians);
+        const forwardX = Math.sin(pose.yawRadians) * cosinePitch;
+        const forwardY = Math.sin(pose.pitchRadians);
+        const forwardZ = Math.cos(pose.yawRadians) * cosinePitch;
+        const previous = this.previousCameraForward;
+        if (this.previousCameraForwardValid && forwardX * previous[0] + forwardY * previous[1] + forwardZ * previous[2] < cameraJumpCosine) {
+            this.resolution.requestPreemptiveCut(cameraJumpPreemptiveCut, "camera jump");
+        }
+        previous[0] = forwardX;
+        previous[1] = forwardY;
+        previous[2] = forwardZ;
+        this.previousCameraForwardValid = true;
     }
 
     writeFrameUniforms(outputWidth, outputHeight, deltaSeconds) {
@@ -1890,7 +1899,6 @@ export class MillersPlanetApp {
         this.rippleField.updateWindow(this.rippleCentre[0], this.rippleCentre[1]);
         this.seaSurface.setCentre(this.cameraFrame.position.x, this.cameraFrame.position.z);
         this.seaSurface.writeParameters();
-        this.waveReservation.writeParameters(this.cameraFrame.position.x, this.cameraFrame.position.z);
         this.updateWave();
         this.bindGargantuaTextures();
         this.writeFrameUniforms(outputWidth, outputHeight, this.clock.lastDeltaSeconds);
@@ -2057,7 +2065,7 @@ export class MillersPlanetApp {
 
     async warmUp() {
         this.testScene.lateMarkerWarmed.setEnabled(true);
-        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.waveReservation.meshes, ...this.giantWave.meshes, this.underwaterView.mesh, ...this.suitRenderer.meshes, ...this.lander.meshesForWarmUp]);
+        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.giantWave.meshes, this.underwaterView.mesh, ...this.suitRenderer.meshes, ...this.lander.meshesForWarmUp]);
         this.postChain.settings.outputBlack = 1;
         this.renderFrame(performance.now(), 1 / 60);
         await this.device.queue.onSubmittedWorkDone();
@@ -2068,7 +2076,7 @@ export class MillersPlanetApp {
             await this.device.queue.onSubmittedWorkDone();
         }
         const systemsBeforeWarmUp = { ...this.systemsEnabled };
-        for (const lateSystem of ["sea", "waveReservation", "wave", "testGeometry", "astronaut", "ship"]) {
+        for (const lateSystem of ["sea", "wave", "testGeometry", "astronaut", "ship"]) {
             this.setSystemEnabled(lateSystem, true);
         }
         for (let frameNumber = 0; frameNumber < 3; frameNumber++) {
@@ -2081,7 +2089,7 @@ export class MillersPlanetApp {
             await this.device.queue.onSubmittedWorkDone();
         }
         this.forceUnderwaterForWarmUp = false;
-        for (const lateSystem of ["sea", "waveReservation", "wave", "testGeometry", "astronaut", "ship"]) {
+        for (const lateSystem of ["sea", "wave", "testGeometry", "astronaut", "ship"]) {
             this.setSystemEnabled(lateSystem, systemsBeforeWarmUp[lateSystem]);
         }
         this.testScene.patternCompute.fastMode = true;

@@ -294,14 +294,6 @@ export const shotDefinitions = {
         ],
         pose: () => ({ position: [0, 1.2, 0], yawRadians: 0, pitchRadians: -38 * degreesToRadians }),
     },
-    "wave-reserve": {
-        phase: 4,
-        hiddenSystems: ["testGeometry"],
-        shownSystems: ["waveReservation"],
-        timeSeconds: 10,
-        verticalFieldOfViewDegrees: 56,
-        pose: () => ({ position: [0, 1.7, 0], yawRadians: gargantuaAzimuthRadians, pitchRadians: 2.7 * degreesToRadians }),
-    },
     "spike-ground": {
         phase: 2,
         hiddenSystems: ["sea"],

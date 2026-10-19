@@ -52,6 +52,29 @@ export async function sampleGpuUtilisation({ sampleCount = 5, intervalMs = 200 }
   return samples;
 }
 
+export async function waitForQuietGpu({ quietChecksNeeded = 5, timeoutMs = Number(process.env.QUIET_GPU_TIMEOUT_MS || 900000), log = console.log } = {}) {
+  const startedMs = Date.now();
+  let quietChecks = 0;
+  let announced = false;
+  while (quietChecks < quietChecksNeeded) {
+    if (Date.now() - startedMs > timeoutMs) return { quiet: false, waitedMs: Date.now() - startedMs };
+    const otherBrowsers = await listHeadlessChromeProcesses();
+    const samples = await sampleGpuUtilisation();
+    const busyPercent = samples.length ? median(samples) : 0;
+    if (!otherBrowsers.length && busyPercent <= GPU_LOAD_WARNING_PERCENT) {
+      quietChecks++;
+    } else {
+      quietChecks = 0;
+      if (!announced) {
+        log(`  waiting for a quiet GPU (now ${busyPercent}% busy, ${otherBrowsers.length} other headless Chrome)...`);
+        announced = true;
+      }
+      await sleep(2000);
+    }
+  }
+  return { quiet: true, waitedMs: Date.now() - startedMs };
+}
+
 export async function checkGpuLoad({ strict = process.env.STRICT_GPU === '1' } = {}) {
   let samples;
   try {

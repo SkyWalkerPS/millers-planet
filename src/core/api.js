@@ -35,6 +35,17 @@ export function installPageApi() {
             requireApplication().testScene.heavyPatternIterations = iterations;
         },
         clearGpuErrors: () => requireApplication().gpuErrors.clear(),
+        setLiveLoopPaused: (paused) => {
+            const app = requireApplication();
+            if (paused && !app.liveLoopPausedByHarness) {
+                app.liveLoopPausedCount++;
+                app.liveLoopPausedByHarness = true;
+            } else if (!paused && app.liveLoopPausedByHarness) {
+                app.liveLoopPausedCount--;
+                app.liveLoopPausedByHarness = false;
+            }
+            return app.liveLoopPausedCount > 0;
+        },
         waveShapeParity: (lateralMetres) => measureWaveShapeParity(requireApplication(), lateralMetres),
         setAstronautPosition: ({ x = 0, z = 0, yawDegrees = 0, cameraYawDegrees = yawDegrees } = {}) => {
             const app = requireApplication();

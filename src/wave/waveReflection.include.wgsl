@@ -40,13 +40,16 @@ fn applyWaveToReflection(radiance: vec3f, origin: vec3f, direction: vec3f, skyIr
     let body = skyIrradiance * vec3f(0.026, 0.040, 0.038) * (0.75 / ATMOSPHERE_PI);
     let mist = skyIrradiance * (0.62 / ATMOSPHERE_PI);
     let face = mix(mist, body, smoothstep(0.0, 0.05, cover.y));
-    let horizontal = normalize(vec3f(direction.x, 0.0, direction.z));
-    let crestElevation = atan2(waveParameters.crestAlongHeightEnabled.y - origin.y, cover.w);
-    let crestDirection = normalize(horizontal * cos(crestElevation) + vec3f(0.0, sin(crestElevation) + 0.01, 0.0));
-    let behindCrest = skyRadianceBlurred(crestDirection, max(skyLevel, 3.0), max(skyLevel, 3.0));
     let hazeAmount = 1.0 - exp(-cover.w / 9000.0);
-    let horizon = skyRadianceBlurred(normalize(horizontal + vec3f(0.0, 0.03, 0.0)), 5.0, 4.0);
-    let hazyFace = mix(face, horizon * frame.waveLightingAndHaze.z, hazeAmount);
-    let glow = behindCrest * vec3f(0.22, 0.78, 0.74) * (2.2 * cover.z * (1.0 - hazeAmount));
+    let hazyFace = mix(face, radiance * frame.waveLightingAndHaze.z, hazeAmount);
+    let glowStrength = 2.2 * cover.z * (1.0 - hazeAmount);
+    var glow = vec3f(0.0);
+    if (glowStrength > 0.001) {
+        let horizontal = normalize(vec3f(direction.x, 0.0, direction.z));
+        let crestElevation = atan2(waveParameters.crestAlongHeightEnabled.y - origin.y, cover.w);
+        let crestDirection = normalize(horizontal * cos(crestElevation) + vec3f(0.0, sin(crestElevation) + 0.01, 0.0));
+        let behindCrest = skyRadianceBlurred(crestDirection, max(skyLevel, 3.0), max(skyLevel, 3.0));
+        glow = behindCrest * vec3f(0.22, 0.78, 0.74) * glowStrength;
+    }
     return mix(radiance, hazyFace, cover.x) + glow;
 }

@@ -4,7 +4,6 @@ export const SHOT_KINDS = {
   still: 'one frame after the scene settles',
   freshLoad: 'the first frame after a fresh page load, shot before any other setup',
   afterReload: 'the first frame after page.reload()',
-  framePair: 'two consecutive frames (needs a later shoot.mjs feature)',
   sequence: 'a frame sequence (needs a later hero-clip tool)',
   byTool: 'made by another tool (named in madeBy), not by shoot.mjs',
 };
@@ -17,7 +16,7 @@ const shipStateShots = [0, 1, 2, 3, 4].map((state) => ({
   description: `Ship damage state ${state}`,
 }));
 
-const shipFromImpactShots = [1, 2, 3, 4].map((waveCount) => ({
+const shipFromImpactShots = [1, 2, 3].map((waveCount) => ({
   name: `ship-${waveCount}-from-impact`,
   phase: 7,
   kind: 'byTool',
@@ -42,8 +41,7 @@ export const SHOTS = [
   { name: 'sea-away', phase: 4, kind: 'still', description: 'Eye height away from Gargantua' },
   { name: 'sea-close', phase: 4, kind: 'still', description: '0.8 m up, 50 degrees down: the bed through the water' },
   { name: 'sea-ripples', phase: 4, kind: 'still', description: 'Close shot after scripted footstep impulses' },
-  { name: 'wave-reserve', phase: 4, kind: 'still', benchmarkByDefault: true, description: 'Placeholder wave and underwater pass (budget)' },
-  { name: 'taau-ghost', phase: 4, kind: 'framePair', description: 'Camera panning over glitter, frame pair' },
+  { name: 'taau-ghost', phase: 4, kind: 'byTool', madeBy: 'tools/motion-check.mjs', description: 'A static frame and two consecutive frames of a fast pan over the glitter path (temporal upscaling ghost check)' },
 
   { name: 'astro-third', phase: 5, kind: 'still', setup: [['setViewPreset', 0]], description: 'Third-person preset' },
   { name: 'astro-close', phase: 5, kind: 'still', setup: [['setViewPreset', 1]], description: 'Close third-person preset' },

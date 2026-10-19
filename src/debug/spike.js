@@ -119,7 +119,12 @@ export class SpikeChecks {
         const passes = stats.gpu.lastPassMs;
         const exclusiveSum = Object.values(passes).reduce((sum, value) => sum + value, 0);
         const expectedLabels = ["testPattern", "beauty", "bloomDown0", "bloomUp0", "shaftMask", "shaftMarch", "composite"];
-        const missing = expectedLabels.filter((label) => !(passes[label] > 0));
+        const recentFrames = app.frameLog.exportSince(app.frameIndex - 30, app.profiler.labelNames);
+        const timedInSomeRecentFrame = (label) => {
+            const labelIndex = recentFrames.labelNames.indexOf(label);
+            return labelIndex >= 0 && recentFrames.passMs.some((row) => row[labelIndex] > 0);
+        };
+        const missing = expectedLabels.filter((label) => !timedInSomeRecentFrame(label));
         const historyTimed = (passes.historyA ?? 0) + (passes.historyB ?? 0) > 0;
         const ratio = exclusiveSum / stats.gpu.lastSpanMs;
         return {

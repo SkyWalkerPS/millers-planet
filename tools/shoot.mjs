@@ -43,7 +43,7 @@ try {
       continue;
     }
     try {
-      if (shot.kind === 'framePair' || shot.kind === 'sequence') {
+      if (shot.kind === 'sequence') {
         throw new Error(`shot kind "${shot.kind}" (${SHOT_KINDS[shot.kind]}) is not supported by shoot.mjs yet`);
       }
       if (shot.kind === 'afterReload' || (shot.kind === 'freshLoad' && !pageIsFresh)) {

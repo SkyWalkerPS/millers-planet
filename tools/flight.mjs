@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sleep } from './cdp.mjs';
-import { anyCheckFailed, checkAppPage, checkGpuLoad, checkStrayHeadlessChrome, printBrowserPaneReminder, printChecks, runMachineChecks } from './preflight.mjs';
+import { anyCheckFailed, checkAppPage, checkGpuLoad, waitForQuietGpu, checkStrayHeadlessChrome, printBrowserPaneReminder, printChecks, runMachineChecks } from './preflight.mjs';
 import { evidenceDirectory, openMillersPlanet, startMillersPlanetServer } from './target.mjs';
 import { normaliseFrameLog, pageExpression } from './page-results.mjs';
 import { formatNumber, formatTable, median, summarise } from './stats.mjs';
@@ -17,6 +17,9 @@ export const FLIGHT_PASS_RULE = {
 };
 export const CONTROLLER_TARGET_MS = 11.0;
 const DRIVER_TICK_MS = 100;
+const SHARED_GPU_JUMP_RATIO = 2;
+const SHARED_GPU_FRAME_LIMIT = 20;
+const MAXIMUM_SHARED_GPU_REPEATS = Number(process.env.SHARED_GPU_REPEATS || 2);
 const LOG_READ_EVERY_MS = 5000;
 const LOG_OVERLAP_FRAMES = 64;
 const STEP_RESPONSE_WINDOW_MS = 2000;
@@ -40,16 +43,16 @@ export const FLIGHT_TIMELINES = {
   },
   sea: {
     phase: 4,
-    summary: 'phase 4: eye-height sweeps over the FFT sea toward and away from Gargantua, a close look down at the water, then a step from sky only to the heaviest view with the placeholder wave and underwater pass switched on',
+    summary: 'phase 4: eye-height sweeps over the FFT sea toward and away from Gargantua with the wave parked on the horizon (calm phase), a close look down at the water, then a flick from sky only to the sea',
     setup: [['setCameraShot', 'sea-wide']],
     segments: [
-      { untilSeconds: 5, label: 'sweep toward Gargantua over the sea', from: orbitPose(-40, 2, 3.2, 1.45), to: orbitPose(40, 4, 3.2, 1.45), systems: { waveReservation: false } },
+      { untilSeconds: 5, label: 'sweep toward Gargantua over the sea', from: orbitPose(-40, 2, 3.2, 1.45), to: orbitPose(40, 4, 3.2, 1.45), systems: { wave: true } },
       { untilSeconds: 10, label: 'abrupt jump, sweep facing away', from: orbitPose(140, -5, 3.2, 1.45), to: orbitPose(220, 0, 3.2, 1.45) },
       { untilSeconds: 14, label: 'close view down at the water', from: orbitPose(20, -50, 1.8, 1.5), to: orbitPose(60, -35, 1.8, 1.5) },
       { untilSeconds: 18, label: 'sky only (looking up)', from: orbitPose(40, 70, 1.5), to: orbitPose(40, 70, 1.5), stepRole: 'before' },
-      { untilSeconds: 22, label: 'step to the wave wall with the underwater pass', from: orbitPose(0, 5, 3.2, 1.45), to: orbitPose(0, 5, 3.2, 1.45), stepRole: 'after', systems: { waveReservation: true } },
-      { untilSeconds: 26, label: 'sweep under the wave wall', from: orbitPose(-30, 15, 3.2, 1.45), to: orbitPose(30, 20, 3.2, 1.45) },
-      { untilSeconds: 30, label: 'wave off, third-person sweep', from: orbitPose(300, 3, 3.2, 1.45), to: orbitPose(420, 8, 3.2, 1.45), systems: { waveReservation: false } },
+      { untilSeconds: 22, label: 'flick down to the sea and the far wave', from: orbitPose(0, 5, 3.2, 1.45), to: orbitPose(0, 5, 3.2, 1.45), stepRole: 'after' },
+      { untilSeconds: 26, label: 'low sweep over the water', from: orbitPose(-30, 4, 3.2, 1.45), to: orbitPose(30, 8, 3.2, 1.45) },
+      { untilSeconds: 30, label: 'abrupt jump to a third-person sweep', from: orbitPose(300, 3, 3.2, 1.45), to: orbitPose(420, 8, 3.2, 1.45) },
     ],
   },
   wave: {
@@ -234,6 +237,15 @@ export function analyseFlight({ records, firstFrameIndex, lastFrameIndex, marker
     if (current.frameIndex === previous.frameIndex + 1) intervals.push({ frameIndex: current.frameIndex, rafTimeMs: current.rafTimeMs, intervalMs: Math.round((current.rafTimeMs - previous.rafTimeMs) * 1000) / 1000 });
   }
   const flightSecondsOf = (rafTimeMs) => Math.round((rafTimeMs - startPageMs) / 10) / 100;
+  const clockReadingJumpSeconds = [];
+  for (let index = 1; index < presentRecords.length; index++) {
+    const previousReading = presentRecords[index - 1].clockSlowdown;
+    const reading = presentRecords[index].clockSlowdown;
+    if (previousReading > 0 && reading > 0 && Math.max(previousReading, reading) / Math.min(previousReading, reading) > SHARED_GPU_JUMP_RATIO) {
+      clockReadingJumpSeconds.push(flightSecondsOf(presentRecords[index].rafTimeMs));
+    }
+  }
+  const sharedGpu = { framesWithClockJumps: clockReadingJumpSeconds.length, firstJumpAtSeconds: clockReadingJumpSeconds[0] ?? null, shared: clockReadingJumpSeconds.length > SHARED_GPU_FRAME_LIMIT };
   const generations = presentRecords.map((record) => record.generation).filter((value) => value !== undefined && value !== null);
   let reallocations = 0;
   for (let index = 1; index < generations.length; index++) if (generations[index] !== generations[index - 1]) reallocations++;
@@ -273,6 +285,7 @@ export function analyseFlight({ records, firstFrameIndex, lastFrameIndex, marker
       return { label: marker.label, frames: segmentRecords.length, spanMedianMs: median(segmentRecords.map((record) => record.gpuSpanMs)), spanMaxMs: segmentRecords.length ? Math.max(...segmentRecords.map((record) => record.gpuSpanMs)) : NaN, scaleMedian: median(segmentRecords.map((record) => record.scale)) };
     }),
     stepResponse: analyseStepResponse(presentRecords, markers, timeline),
+    sharedGpu,
     verdicts,
     pass: verdicts.every((verdict) => verdict.pass),
   };
@@ -292,6 +305,7 @@ const hudHidden = process.env.HUD === '0';
 const maximumScaleCap = process.env.MAX_SCALE ? Number(process.env.MAX_SCALE) : null;
 
 async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumber, verbose }) {
+  const quietWait = process.env.WAIT_FOR_QUIET_GPU === '0' ? null : await waitForQuietGpu();
   const gpuLoad = await checkGpuLoad();
   const otherChrome = await checkStrayHeadlessChrome();
   const target = await openMillersPlanet({ server, query: hudHidden ? { hud: '0' } : {} });
@@ -354,6 +368,7 @@ async function flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumb
     const statsAfter = await page.evaluate(pageExpression('(() => { const stats = window.millersPlanet.stats(); return { gpuErrors: stats.gpuErrors || [], deviceLost: stats.deviceLost, gpu: stats.gpu || {} }; })()'));
     return {
       runNumber,
+      quietGpuWait: quietWait,
       gpuLoadBefore: { status: gpuLoad.status, samples: gpuLoad.samples, medianPercent: gpuLoad.medianPercent },
       otherHeadlessChromeBefore: { status: otherChrome.status, detail: otherChrome.detail },
       markers,
@@ -418,8 +433,17 @@ if (isMainModule) {
   try {
     console.log(`\nFlight "${flightName}" (${timeline.summary})${hudHidden ? ', HUD hidden with ?hud=0' : ''}`);
     console.log(`${runCount} fresh run(s) of ${flightSeconds} s from ${server.description}, controller live, ${settleSeconds} s settle before each run`);
+    const runFileStem = `${phase}-flight-${flightName}${hudHidden ? '-hud-off' : ''}`;
     for (let runNumber = 1; runNumber <= runCount; runNumber++) {
-      const run = await flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumber, verbose });
+      let run;
+      for (let attempt = 1; ; attempt++) {
+        run = await flyOnce({ server, timeline, flightSeconds, settleSeconds, runNumber, verbose });
+        if (run.refused || !run.analysis.sharedGpu.shared || attempt > MAXIMUM_SHARED_GPU_REPEATS) break;
+        const sharedPath = path.join(evidenceDirectory(), `${runFileStem}-run${runNumber}-shared${attempt}.json`);
+        mkdirSync(path.dirname(sharedPath), { recursive: true });
+        writeFileSync(sharedPath, JSON.stringify({ tool: 'flight.mjs', flight: flightName, createdAt: new Date().toISOString(), passRule: FLIGHT_PASS_RULE, maximumScaleCap, preflight: machine.checks, ...run }, null, 1));
+        console.log(`\nRun ${runNumber}, attempt ${attempt}: another program used the GPU during the run (${run.analysis.sharedGpu.framesWithClockJumps} frames where the clock reading jumped more than ${SHARED_GPU_JUMP_RATIO}x from the frame before, first at ${run.analysis.sharedGpu.firstJumpAtSeconds} s), so its timings measure that program too. Saved as ${sharedPath}; repeating the run.`);
+      }
       if (run.refused) {
         refused = run;
         break;
@@ -428,6 +452,7 @@ if (isMainModule) {
       const analysis = run.analysis;
       console.log(`\nRun ${runNumber} of ${runCount}: ${analysis.timedFrameCount} timed frames of ${analysis.expectedFrameCount} rendered (${(analysis.expectedFrameCount / flightSeconds).toFixed(1)} fps), GPU busy before the run ${run.gpuLoadBefore.medianPercent ?? '?'}%`);
       if (run.otherHeadlessChromeBefore.status !== 'PASS') console.log(`  WARNING before this run: ${run.otherHeadlessChromeBefore.detail}`);
+      console.log(`  other GPU work during the run: ${analysis.sharedGpu.framesWithClockJumps} frame(s) where the clock reading jumped more than ${SHARED_GPU_JUMP_RATIO}x (more than ${SHARED_GPU_FRAME_LIMIT} means the GPU was shared)${analysis.sharedGpu.shared ? `; WARNING: still shared after ${MAXIMUM_SHARED_GPU_REPEATS + 1} attempts, so these timings are not trustworthy` : ''}`);
       console.log(formatVerdictTable(analysis));
       const frameGaps = analysis.frameGaps;
       console.log(`  frame gaps over the limit: ${frameGaps.gaps.length}${frameGaps.gaps.length ? ` (${frameGaps.gaps.map((gap) => `${gap.intervalMs} ms at ${gap.flightSeconds} s${gap.duringFrameLogRead ? `, during a frame-log read of ${gap.frameLogReadMs.join(' + ')} ms` : ', no frame-log read at the time'}`).join('; ')})` : ''}; ${frameGaps.frameLogReads} frame-log reads by this tool, longest ${formatNumber(frameGaps.frameLogReadMaxMs)} ms on the page`);
@@ -446,7 +471,7 @@ if (isMainModule) {
       }
       if (run.gpuErrors.length) console.log(`  GPU errors: ${run.gpuErrors.slice(0, 3).join(' | ')}`);
       if (run.pageErrors.length) console.log(`  page errors:\n${run.pageErrors.map((line) => `    ${line}`).join('\n')}`);
-      const evidencePath = path.join(evidenceDirectory(), `${phase}-flight${hudHidden ? '-hud-off' : ''}-run${runNumber}.json`);
+      const evidencePath = path.join(evidenceDirectory(), `${runFileStem}-run${runNumber}.json`);
       mkdirSync(path.dirname(evidencePath), { recursive: true });
       writeFileSync(evidencePath, JSON.stringify({ tool: 'flight.mjs', flight: flightName, createdAt: new Date().toISOString(), passRule: FLIGHT_PASS_RULE, maximumScaleCap, preflight: machine.checks, ...run }, null, 1));
       console.log(`  wrote ${evidencePath}`);

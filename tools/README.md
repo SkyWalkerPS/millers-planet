@@ -48,15 +48,27 @@ Settings: `PHASE` (default 2), `FRAMES` (settle frames, 32), `SCALE` (render sca
 
 Times the GPU on fixed shots. Each run uses a fresh Chrome. For each shot it calls `millersPlanet.benchmark({ frames, warmup, paced })` and reports the frame span (first pass start to last pass end) at p50, p95, p99 and max, the per-pass times by label (p50 and p99), and the render scale. It also checks that every measured frame was timed, that no pipelines were created after warm-up, and that there were no GPU errors. It writes `evidence/<phase>-bench.json` with the raw numbers.
 
-Run: `npm run bench` (the phase-2 shots marked for benchmarking), or `npm run bench -- empty`. Settings: `RUNS` (3; the report shows the worst value of each metric over all runs), `FRAMES` (300), `WARMUP` (90), `UNPACED=1` (render back to back instead of once per screen refresh, which keeps the GPU clock up), `SCALE` (pins the render scale), `TIME=frozen` (keep the clock the shot freezes; by default the clock runs during the benchmark, so the sea simulation and ripples cost what they cost in play), `SHOTS=a,b`, `PHASE`, `SPAN_P99_LIMIT_MS` (14). Exit code 0 = pass, 1 = a span p99 over the limit or a broken measurement, 2 = refused because a preflight check failed (for example no timestamp queries).
+Before each run it waits for a quiet GPU, like `flight`. Run: `npm run bench` (the phase-2 shots marked for benchmarking), or `npm run bench -- empty`. Settings: `RUNS` (3; the report shows the worst value of each metric over all runs), `FRAMES` (300), `WARMUP` (90), `UNPACED=1` (render back to back instead of once per screen refresh, which keeps the GPU clock up), `SCALE` (pins the render scale), `TIME=frozen` (keep the clock the shot freezes; by default the clock runs during the benchmark, so the sea simulation and ripples cost what they cost in play), `SHOTS=a,b`, `PHASE`, `SPAN_P99_LIMIT_MS` (14). Exit code 0 = pass, 1 = a span p99 over the limit or a broken measurement, 2 = refused because a preflight check failed (for example no timestamp queries).
 
 ## flight (`flight.mjs`)
 
-The 30-second pass-rule run with the dynamic resolution controller working. The page renders normally while Node moves the camera every 100 ms through `millersPlanet.debug.setOrbitCamera` (the page eases between those points itself). Afterwards the tool reads every frame from `millersPlanet.frameLog()` (it never samples `stats()`), so no frame can be missed.
+The 30-second pass-rule run with the dynamic resolution controller working. The page renders normally while Node drives it every 100 ms: the camera through `millersPlanet.debug.setOrbitCamera` (the page eases between those points itself), or keys and mouse through `millersPlanet.injectInput`. Every 5 s, and at the end, the tool reads every frame from `millersPlanet.frameLog()` (it never samples `stats()`), so no frame can be missed. Each read is returned as one JSON string and timed on the page; every frame gap is checked against the reads, so a stall caused by the tool itself would be named.
 
-Pass rule, checked on every one of the runs: GPU span p99 at most 14.0 ms, span max at most 16.6 ms, the gap between rendered frames at most 16.8 ms (plus 0.05 ms, because headless Chrome reports frame times in 0.1 ms steps, so a perfect 60 Hz stream reads 16.6 to 16.8 ms), render scale median at least 0.7 and minimum at least 0.5, and every frame timed. It prints a table per run and the worst value of each metric, plus the slowest frames and longest gaps with what the camera was doing, and the controller's response to the step from looking only at the sky to looking only at the ground. It writes `evidence/<phase>-flight-run<k>.json` with every frame.
+Pass rule (the user's decision of 2026-10-19), checked on every one of the runs:
+- the gap between rendered frames is at most 16.8 ms (plus 0.05 ms, because headless Chrome reports frame times in 0.1 ms steps, so a perfect 60 Hz stream reads 16.6 to 16.8 ms);
+- GPU time at full clock speed is at most 14.0 ms at p99 and 16.6 ms at most. That is each frame's GPU working time (the union of its passes) divided by the clock slowdown that the fixed-cost passes show, because macOS lowers the GPU clock whenever a frame finishes early;
+- the render scale has a median of at least 0.7 and a minimum of at least 0.5;
+- every frame is timed.
 
-Run: `npm run flight`. Settings: `FLIGHT=empty` (phase 2, the test scene) or `FLIGHT=sea` (phase 4: the FFT sea, a close look at the water, and a step to the placeholder wave and underwater pass; a timeline can carry `setup` calls run before the flight and per-segment `systems` switches, and the clock is always released after the setup, so a shot that freezes time cannot freeze the flight; `FLIGHT=walk` (phase 5: player mode driven by injected keys and mouse through `millersPlanet.injectInput`: walking, orbiting while walking, Shift, stopping, C into the close and first-person presets, a turn back toward the camera, looking up); `wave` is a placeholder until phase 7), `RUNS` (3), `SECONDS` (30), `SETTLE_SECONDS` (3), `VERBOSE=1`, `PHASE`. `SCALE` is refused, because the controller must be free. Exit code 0 = every run passed, 1 = a run failed, 2 = refused by preflight.
+Before each run the tool waits for a quiet GPU: no other headless Chrome, and the GPU at most 10% busy for five checks in a row (`WAIT_FOR_QUIET_GPU=0` skips the wait; `QUIET_GPU_TIMEOUT_MS`, default 15 minutes). A run that still shares the GPU with another program is detected from inside: the clock reading (the fixed-cost passes) never jumps more than 2x from one frame to the next on its own, so more than 20 such frames mean another program's GPU work was interleaved with ours. Such a run is saved as `<name>-run<k>-shared<n>.json` and repeated, up to `SHARED_GPU_REPEATS` (2) times. The measured span, the span at full clock and the slowdown are reported as diagnostics. The tool prints a table per run and the worst value of each metric, the slowest frames and longest gaps with what was happening, and the controller's response to the step from looking only at the sky to looking at the ground. It writes `evidence/<phase>-flight-<name>-run<k>.json` with every frame, including its clock reading.
+
+Run: `npm run flight`. Flights (`FLIGHT=`):
+- `empty`: phase 2, the test scene;
+- `sea`: phase 4, eye-height sweeps over the sea with the wave parked on the horizon, a close look at the water, and a flick from the sky down to the sea;
+- `walk`: phase 5, player mode driven by keys and mouse: walking, orbiting while walking, Shift, stopping, C into the close and first-person views, a turn back toward the camera, looking up;
+- `wave`: phase 7, the first wave from T−22 to T+8: walking toward it, looking up and around, then the locked brace, the underwater view and the drain.
+
+A timeline can carry `setup` calls run before the flight and per-segment `systems` switches; the clock is always released after the setup. Settings: `RUNS` (3), `SECONDS` (30), `SETTLE_SECONDS` (3), `VERBOSE=1`, `PHASE`, `HUD=0` (hide the clocks), `MAX_SCALE` (a diagnostic cap on the controller's scale; the scale rules then fail by design). `SCALE` is refused, because the controller must be free. Exit code 0 = every run passed, 1 = a run failed, 2 = refused by preflight.
 
 ## interact (`interact.mjs`)
 
@@ -112,6 +124,30 @@ Run: `node tools/measure-image.mjs evidence/3-sky-away.png --region sky=0,0,1,0.
 Planted-feet test for the astronaut. The scripted walk (`src/character/scriptedWalk.js`: idle, walk, a 90 degree turn while walking, Shift, stop, a 180 degree turn in place, walk back, stop) runs through the real controller and figure. For each foot and stance, every sole point (heel, mid, ball, toe) is remembered on the first frame it is within 1 cm of the seabed, and must stay within 2 cm of that spot while it stays in contact. It also checks that no stance leg reaches beyond 99% of its length, that the heel lands on the seabed, and the cadence at 1 m/s.
 
 Run: `node tools/foot-drift.mjs` (Node only, no GPU: 60, 30, 120 and jittered 50-70 fps) or `node tools/foot-drift.mjs --browser` (the gate measurement: the page runs the same walk at 60 fps through real rendered frames with `millersPlanet.debug.runFootDriftWalk` and records `stats().feet` every frame; writes `evidence/<PHASE>-foot-drift.json`). Exit code 1 on any failure. The worst drift is about 1 cm: that is the contact tolerance (a point counts as touching while within 1 cm, so it can still move that far as the foot rolls flat or lifts), not sliding.
+
+## motion-check (`motion-check.mjs`)
+
+The temporal-upscaling ghost check (`taau-ghost`). From the `sea-wide` view it renders a static frame, then pans the camera across the glitter path at 120 degrees per second and captures two consecutive frames mid-pan. The page's live loop is paused through `millersPlanet.debug.setLiveLoopPaused`, so each screenshot shows exactly the frame the tool rendered, and the middle pan frame lands on the static frame's angle. Look at them side by side: edges, the glitter and the disk must not trail or double. Run: `PHASE=4 node tools/motion-check.mjs` (`PAN_FROM_YAW`, `PAN_TO_YAW`, `PAN_SECONDS`). Writes `evidence/<phase>-taau-ghost-{static,pan,pan-next}.png` and `-taau-ghost.json`.
+
+## final-set (`final-set.mjs`)
+
+The committed screenshot set: every product shot (phases 3 to 7, including the views from the impact spots made by `wave-run.mjs`) is scaled to 1728x1117 and saved as JPEG quality 90 in `evidence/final/<shot>.jpg`. It refuses screenshots older than `dist/index.html`, so the set always comes from the current production build, and it uses the same film-stills guard as the sheet. Run after the phase-8 shots: `node tools/final-set.mjs`.
+
+## ship-check (`ship-check.mjs`)
+
+The lander after each wave. For five impact spots and waves 1 to 5 it calls `millersPlanet.debug.relocateShipForWave` and checks the distance (100 to 150 m), the damage state (70%, 40%, wreckage, gone, gone) and visibility. It also times scripted walks to the ship (about two minutes) and probes collision: walking into each state from 16 m, the body may overlap the ship's boxes by at most 2 cm and the camera must stay at least 0.20 m from them. Run: `PHASE=6 node tools/ship-check.mjs`. Writes `evidence/<phase>-ship-check.json`; exit code 1 on any failure.
+
+## origin-check (`origin-check.mjs`)
+
+The floating origin. It renders the same view before and after a forced shift of 1,024 m and compares the two images against a same-gap repeat of the first (mean, 99.9th percentile and the worst 32-pixel tile), then walks the astronaut across the 1 km line and checks that nothing jumps. Run: `PHASE=7 node tools/origin-check.mjs`. `SHIFT_METRES=1000` plants a misaligned shift (the check must fail), and `SHIFT_METRES=0` is a control. Writes `evidence/<phase>-origin-*.png` and `-origin-check.json`; exit code 1 on any failure.
+
+## wave-run (`wave-run.mjs`)
+
+Five waves in a row. For each wave it lets the clock run into the approach (T−59), brace (T−5), underwater (T+2), drain (T+8) and after (T+15), takes a screenshot of each, and checks the phase, the brace and input lock, the underwater view, the ship's state and its distance from the impact spot, plus a view of the ship from that spot. It samples the camera every 0.1 s through the brace-in and drain blends (the helmet must stay in view and at least 0.8 m away). It compares the CPU copy of the wave's crest noise with the GPU's, and checks the schedule at the worst and calmest crest offsets within ±20 km. Finally, a reload must reset everything. Run: `PHASE=7 node tools/wave-run.mjs` (`WAVES=1` for a quick run). Writes `evidence/<phase>-wave-run-*.png` and `-wave-run.json`; exit code 1 on any failure.
+
+## crest-check (`crest-check.mjs`)
+
+Measures the backlit crest. It reads the crest and face crops that the `crest-backlit` shot writes (computed from the wave's geometry), and passes when the crest is brighter and more blue-green than the face. Run after `npm run shots -- crest-backlit`: `PHASE=7 node tools/crest-check.mjs`. Writes `evidence/<phase>-crest-check.json`.
 
 ## size (`size-report.mjs`)
 

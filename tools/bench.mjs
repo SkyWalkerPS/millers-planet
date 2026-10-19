@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { anyCheckFailed, checkAppPage, checkGpuLoad, checkStrayHeadlessChrome, printBrowserPaneReminder, printChecks, runMachineChecks } from './preflight.mjs';
+import { anyCheckFailed, checkAppPage, checkGpuLoad, checkStrayHeadlessChrome, printBrowserPaneReminder, printChecks, runMachineChecks, waitForQuietGpu } from './preflight.mjs';
 import { applyShotSetup, selectShots, shotsForPhase } from './shots.mjs';
 import { evidenceDirectory, openMillersPlanet, startMillersPlanetServer } from './target.mjs';
 import { normaliseBenchmarkResult, pageExpression } from './page-results.mjs';
@@ -109,10 +109,11 @@ try {
   console.log(`\nBenchmarking ${shots.map((shot) => shot.name).join(', ')} from ${server.description}`);
   console.log(`${runCount} fresh run(s), ${measuredFrameCount} measured frames after ${warmupFrameCount} warm-up frames, ${paced ? 'paced by requestAnimationFrame' : 'UNPACED (back to back)'}, render scale ${pinnedScale ? `pinned to ${pinnedScale}` : 'live (controller)'}`);
   for (let runNumber = 1; runNumber <= runCount; runNumber++) {
+    const quietWait = process.env.WAIT_FOR_QUIET_GPU === '0' ? null : await waitForQuietGpu();
     const gpuLoad = await checkGpuLoad();
     const otherChrome = await checkStrayHeadlessChrome();
     const target = await openMillersPlanet({ server, query: pinnedScale ? { scale: pinnedScale } : {} });
-    const run = { runNumber, gpuLoadBefore: { status: gpuLoad.status, samples: gpuLoad.samples, detail: gpuLoad.detail }, otherHeadlessChromeBefore: { status: otherChrome.status, detail: otherChrome.detail }, shots: {} };
+    const run = { runNumber, quietGpuWait: quietWait, gpuLoadBefore: { status: gpuLoad.status, samples: gpuLoad.samples, detail: gpuLoad.detail }, otherHeadlessChromeBefore: { status: otherChrome.status, detail: otherChrome.detail }, shots: {} };
     try {
       const { checks: appChecks } = await checkAppPage(target.page, { viewport: target.viewport });
       if (anyCheckFailed(appChecks)) {

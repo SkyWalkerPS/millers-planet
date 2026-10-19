@@ -4,6 +4,8 @@ const shortestProbeIntervalFrames = 90;
 const longestProbeIntervalFrames = 1200;
 const probeStepFraction = 0.025;
 const recentSpikeWindowMask = 0b1111;
+const singleDeadlineMissCutLimit = 0.15;
+const sustainedDeadlineMissCutLimit = 0.3;
 
 function countSetBits(value) {
     let count = 0;
@@ -40,6 +42,7 @@ export class DynamicResolutionController {
         this.windowRawMaximumMilliseconds = 0;
         this.stepUpsBlockedByRawSpan = 0;
         this.deadlineCutCount = 0;
+        this.previousFrameMissedDeadline = false;
         this.lastClockSlowdown = 1;
         this.lastNormalizedSpanMilliseconds = 0;
         this.recentSpikeFlags = 0;
@@ -171,13 +174,21 @@ export class DynamicResolutionController {
             return;
         }
         const frameWasDrawnAtOrBelowCurrentScale = scaleOfFrame <= this.scale + 1e-6;
-        if (rawSpanMilliseconds > this.frameDeadlineGuardMilliseconds && frameWasDrawnAtOrBelowCurrentScale) {
-            const cutFraction = Math.min(0.15, Math.max(0.05, 1 - Math.sqrt(this.frameDeadlineGuardMilliseconds * 0.85 / rawSpanMilliseconds)));
-            this.deadlineCutCount++;
-            this.stepDownCount++;
-            this.probeIntervalFrames = Math.min(longestProbeIntervalFrames, this.probeIntervalFrames * 2);
-            this.applyScale(this.scale * (1 - cutFraction), "deadline");
-            return;
+        const frameMissedDeadline = rawSpanMilliseconds > this.frameDeadlineGuardMilliseconds;
+        const missStreak = frameMissedDeadline && this.previousFrameMissedDeadline;
+        this.previousFrameMissedDeadline = frameMissedDeadline;
+        if (frameMissedDeadline) {
+            const areaRatioToCurrentScale = (this.scale / scaleOfFrame) ** 2;
+            const expectedRawAtCurrentScale = rawSpanMilliseconds * Math.min(1, areaRatioToCurrentScale);
+            if (frameWasDrawnAtOrBelowCurrentScale || (missStreak && expectedRawAtCurrentScale > this.frameDeadlineGuardMilliseconds)) {
+                const largestCut = missStreak ? sustainedDeadlineMissCutLimit : singleDeadlineMissCutLimit;
+                const cutFraction = Math.min(largestCut, Math.max(0.05, 1 - Math.sqrt(this.frameDeadlineGuardMilliseconds * 0.85 / expectedRawAtCurrentScale)));
+                this.deadlineCutCount++;
+                this.stepDownCount++;
+                this.probeIntervalFrames = Math.min(longestProbeIntervalFrames, this.probeIntervalFrames * 2);
+                this.applyScale(this.scale * (1 - cutFraction), missStreak ? "deadline streak" : "deadline");
+                return;
+            }
         }
         if (frameIndex < this.scaleChangeFrameIndex) {
             return;
