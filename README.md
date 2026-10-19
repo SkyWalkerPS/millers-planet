@@ -6,11 +6,13 @@ A walkable, real-time recreation of the water planet from *Interstellar*, runnin
 
 ![The opening view: the astronaut stands in the shallow sea near the lander, with Gargantua above a clearing in the clouds](evidence/final/opening.jpg)
 
-![The wave twenty seconds out: its crest is level with Gargantua and glows turquoise](evidence/final/crest-backlit.jpg)
+![The wave thirty seconds out: its crest is level with Gargantua and glows turquoise](evidence/final/crest-backlit.jpg)
 
 ![Braced on one knee in front of the wall of water](evidence/final/wave-b-brace.jpg)
 
 ![Under water: Gargantua seen through the rippling surface in Snell's window](evidence/final/wave-c-underwater.jpg)
+
+![Half a minute later, looking back: the wave that passed, still 2.4 km tall, moving away](evidence/final/wave-receding.jpg)
 
 ## Run it
 
@@ -21,7 +23,7 @@ npm install
 npm run dev
 ```
 
-For the production build, `npm run build` writes a static site to `dist/`: an `index.html`, a main script with four small chunks, and two licence files, 317.8 kB in total with brotli (402.0 kB gzip). Serve that folder with any static web server, for example `npm run preview`. Opening `dist/index.html` straight from the disk does not work, because Chrome blocks module scripts loaded from `file://`.
+For the production build, `npm run build` writes a static site to `dist/`: an `index.html`, a main script with four small chunks, and two licence files, 319.0 kB in total with brotli (403.5 kB gzip). Serve that folder with any static web server, for example `npm run preview`. Opening `dist/index.html` straight from the disk does not work, because Chrome blocks module scripts loaded from `file://`.
 
 The first click on the canvas captures the mouse and starts the sound.
 
@@ -31,8 +33,8 @@ The first click on the canvas captures the mouse and starts the sound.
 |---|---|
 | Click | Capture the mouse and start the sound |
 | Mouse | Orbit the camera: all the way round, and from 30° down to 60° up in the third-person views |
-| W A S D or the arrow keys | Wade (about 1.0 m/s) |
-| Shift | Wade a little faster (about 1.3 m/s) |
+| W A S D or the arrow keys | Wade (about 1.5 m/s) |
+| Shift | Wade a little faster (about 1.95 m/s) |
 | C | Cycle the three views: third person, closer third person, first person |
 | Esc | Release the mouse |
 
@@ -78,7 +80,7 @@ An original design in the shape language of the film's Ranger: flat faceted plat
 
 ### The wave
 
-The wave is a scripted shape, not a fluid simulation: a steep two-sided ridge 1.2 km tall and about 1 km wide, with its height and crest line varying along its 60 km length. From the start it waits on the horizon like a hazy mountain range; a minute before impact it starts to move, and twenty seconds out its crest is level with Gargantua. The crest glows because the shader follows the view ray through the thin wedge of water at the top: the light of Gargantua and the sky behind it passes through with water's real absorption (red is lost first) plus forward scattering, so thin parts glow turquoise and the thick face stays dark. As the wall closes in, the light and the sky dim, and the sea, the suit, the visor and the lander all reflect the wall and its crest.
+The wave is a scripted shape, not a fluid simulation: a steep two-sided ridge 2.4 km tall (twice the film's, for a sense of scale) and about 1 km wide, with its height and crest line varying along its 60 km length. From the start it waits 13 km away on the horizon like a hazy mountain range; a minute before impact it starts to move at about 200 m/s, and thirty seconds out its crest is level with Gargantua, then climbs over it and blots it out. The crest glows because the shader follows the view ray through the thin wedge of water at the top: the light of Gargantua and the sky behind it passes through with water's real absorption (red is lost first) plus forward scattering, so thin parts glow turquoise and the thick face stays dark. As the wall closes in, the light and the sky dim, and the sea, the suit, the visor and the lander all reflect the wall and its crest. After it passes it keeps going: turn round and you can watch it travel away at 200 m/s, still reflected in the sea, until it sinks back into the sea 20 to 40 km away. Meanwhile the next wave rises out of the sea 30 km ahead.
 
 ### Under water
 
@@ -111,8 +113,9 @@ The clocks show Miller time (hours, minutes, seconds) and Earth time (years, day
 | The water's grey-green murk and the colour grade (cool shadows, untouched highlights) | Artistic, matched to the film |
 | Footstep ripples, from the same dispersion | Physically based; their damping and shapes are artistic |
 | The seabed (sand, ripple marks, stones) | Artistic |
-| Snell's window, Fresnel and water absorption | Real optics; the bright light under a 1.2 km wave is artistic |
-| The giant wave: its existence over 20 cm of water, its shape, speed, five-minute spacing and drain | Artistic |
+| Snell's window, Fresnel and water absorption | Real optics; the bright light under a 2.4 km wave is artistic |
+| The giant wave: its existence over 20 cm of water, its 2.4 km height, shape, speed, five-minute spacing, drain, and how it sinks away in the distance | Artistic |
+| The distance haze on the giant wave, kept to 55% so it reads as a dark range from far away | Artistic |
 | The crest's turquoise glow | Physically motivated (absorption and forward scattering), but exaggerated |
 | Light dimming under the wall, and the soft shadows | Approximations |
 | The mirrored visor (the film's visors are clear) and Gargantua seen from the surface (the film never shows it) | Artistic |
@@ -125,26 +128,27 @@ This is a non-commercial fan tribute to *Interstellar*. It uses no frames, model
 
 ## Performance
 
-Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on mains power, from the production build. There were five scripted 30-second flights, each run three times:
+Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on mains power, from the production build. There were six scripted 30-second flights, each run three times:
 - walking, orbiting the camera and switching views, with and without the clocks;
 - sweeping over the sea, including an instant flick from the sky down to the water;
 - the first wave, from 22 seconds before impact to 8 seconds after, through the brace, the underwater pass and the drain;
+- the half minute after the wave passes: turning round to watch it go, then walking and running after it;
 - a stress test on a test scene that jumps from looking straight up to looking straight down.
 
-GPU time at full clock speed stayed at most 11.0 ms (p99) and 16.6 ms (maximum), against a 16.7 ms frame. The internal resolution stayed at 100% most of the time and dipped to 50% at worst, right after the instant camera jumps. In 14 of the 15 runs, every frame arrived within 16.8 ms of the one before. The other run had one late frame (33 ms) while looking at the sky, with the GPU nearly idle, just as macOS was lowering the GPU clock. Across all the passes, this kind of single hitch appeared about once in every six to ten runs, always in very light views. I have not found its cause.
+GPU time at full clock speed stayed at most 11.0 ms (p99) and 14.3 ms (maximum), against a 16.7 ms frame. The internal resolution stayed at 100% most of the time and dipped to 50% at worst, right after the instant camera jumps. In 17 of the first 18 runs, every frame arrived within 16.8 ms of the one before. The other, a sea flight, dropped to 30 frames per second for about two seconds after the flick down to the water, while the GPU clock ran up to 4.8 times slower than its fastest and a macOS photo-analysis process was busy; the work itself still fitted (12.4 ms at full clock). A repeat of the sea flight was clean in all three runs. Earlier builds also showed a rarer kind of hitch, a single late frame in very light views, about once in six to ten runs. I have not proven the cause of either.
 
-Measured without corrections, the GPU time reads higher: 11 to 15 ms (p99), with single frames above 20 ms right after the instant camera jumps. The cause is macOS slowing the GPU clock whenever a frame finishes early. I have not checked a real display or a screen recording.
+Measured without corrections, the GPU time reads higher: 11 to 20 ms (p99), with single frames up to 33 ms right after the instant camera jumps. The cause is macOS slowing the GPU clock whenever a frame finishes early. I have not checked a real display or a screen recording.
 
 ## Known limitations
 
 - Desktop Chrome and Edge only (WebGPU); no phones, tablets, Safari or Firefox.
 - Smoothness was measured in headless Chrome, not on a real display, at 120 Hz, or in a recording.
-- About once in every six to ten 30-second runs, one frame arrives late (33 ms) while the view is mostly bright sky, just as macOS lowers the GPU clock. The cause is unknown.
+- Now and then the frame rate slips while macOS changes the GPU clock: a single late frame (33 ms) in very light views about once in six to ten 30-second runs, and in one of 21 runs a two-second dip to 30 frames per second after an instant camera flick. The cause is unknown.
 - No splash droplets: water contact shows as wakes, rings and whitewater.
 - The sea reflects the sky and the wave, but not the ship or the astronaut, so from far away the lander can look as if it stands on the water.
 - Shadows are soft stand-ins cast by simple shapes; nothing shadows itself.
 - When a hull or wing of the ship comes between the camera and the astronaut, the camera jumps in to stay clear of it.
-- The wave is a shaped effect, not a fluid simulation; its back slope looks smooth and flat as it recedes, and from far away (a minute before impact) it is faint.
+- The wave is a shaped effect, not a fluid simulation. Its back, which you see when you turn round to watch it go, is a smooth, plain slope with no spray or breaking water.
 - The sea is calmer than the film's: its waves are a few centimetres high, so the broad, sparkling glint field and the chop of the film's water are missing.
 - Esc releasing the mouse was not tested automatically (headless Chrome cannot send it).
 

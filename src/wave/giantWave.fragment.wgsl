@@ -114,7 +114,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
 
     let currentClip = frame.viewProjection * vec4f(world, 1.0);
     let previousClip = frame.previousViewProjection * vec4f(input.vPreviousWorldPosition, 1.0);
-    radiance = applyAerialPerspective(radiance, currentClip, viewDistance);
+    radiance = mix(radiance, applyAerialPerspective(radiance, currentClip, viewDistance), WAVE_HAZE_KEPT);
     fragmentOutputs.fragData0 = vec4f(radiance, 1.0);
     fragmentOutputs.fragData1 = packMotionDepthAndSurface(currentClip, previousClip, SURFACE_CODE_WAVE);
 }

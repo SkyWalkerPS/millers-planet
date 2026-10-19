@@ -8,14 +8,17 @@ export const waveSchedule = {
 };
 
 export const wavePath = {
-    heightMetres: 1200,
-    parkedDistanceMetres: 7000,
-    risingStartDistanceMetres: 20000,
+    heightMetres: 2400,
+    parkedDistanceMetres: 13000,
+    risingStartDistanceMetres: 30000,
     risingSeconds: 120,
+    risingHeightSeconds: 45,
     passingSpeedMetresPerSecond: 200,
     approachKnotSeconds: [0, 8, 20, 60],
-    approachKnotDistances: [0, 1700, 3300, 7000],
-    approachKnotSpeeds: [200, 164, 109, 60],
+    approachKnotDistances: [0, 1700, 4400, 13000],
+    approachKnotSpeeds: [200, 215, 240, 180],
+    recedingSinkStartMetres: 20000,
+    recedingSinkEndMetres: 40000,
 };
 
 export const WAVE_PHASE_CALM = 0;
@@ -76,6 +79,24 @@ export function frontDistanceMetres(waveIndex, secondsBeforeImpact, schedule = w
     return path.risingStartDistanceMetres + (path.parkedDistanceMetres - path.risingStartDistanceMetres) * eased;
 }
 
+function smoothFraction(value) {
+    const clamped = Math.min(1, Math.max(0, value));
+    return clamped * clamped * (3 - 2 * clamped);
+}
+
+export function heightFractionOf(waveIndex, secondsBeforeImpact, schedule = waveSchedule, path = wavePath) {
+    if (secondsBeforeImpact <= 0) {
+        const distanceAway = path.passingSpeedMetresPerSecond * -secondsBeforeImpact;
+        return 1 - smoothFraction((distanceAway - path.recedingSinkStartMetres) / (path.recedingSinkEndMetres - path.recedingSinkStartMetres));
+    }
+    if (waveIndex === 1 || secondsBeforeImpact <= schedule.approachSeconds) {
+        return 1;
+    }
+    const calmSeconds = schedule.periodSeconds - settleSecondsOf(schedule) - schedule.approachSeconds;
+    const secondsIntoCalm = calmSeconds - (secondsBeforeImpact - schedule.approachSeconds);
+    return smoothFraction(secondsIntoCalm / path.risingHeightSeconds);
+}
+
 export function createWaveState() {
     return {
         index: 1,
@@ -87,8 +108,10 @@ export function createWaveState() {
         phaseEndSeconds: 0,
         secondsIntoPhase: 0,
         frontDistanceMetres: 0,
+        heightFraction: 1,
         previousIndex: 0,
         previousFrontDistanceMetres: 0,
+        previousHeightFraction: 0,
     };
 }
 
@@ -130,7 +153,9 @@ export function waveStateAt(seconds, out = createWaveState(), schedule = waveSch
     out.secondsIntoPhase = seconds - start;
     out.frontDistanceMetres = frontDistanceMetres(index, secondsBeforeImpact, schedule, path);
     out.previousIndex = index - 1;
+    out.heightFraction = heightFractionOf(index, secondsBeforeImpact, schedule, path);
     out.previousFrontDistanceMetres = index > 1 ? frontDistanceMetres(index - 1, impactSecondsOf(index - 1, schedule) - seconds, schedule, path) : 0;
+    out.previousHeightFraction = index > 1 ? heightFractionOf(index - 1, impactSecondsOf(index - 1, schedule) - seconds, schedule, path) : 0;
     return out;
 }
 

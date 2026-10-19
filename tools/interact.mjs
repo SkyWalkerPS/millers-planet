@@ -13,7 +13,7 @@ const CHECK_TITLES = {
   5: 'the mouse wheel changes nothing',
   6: 'ctrl+wheel changes nothing',
   7: 'trackpad pinch and the + - = _ keys change nothing',
-  8: 'WASD and arrow keys walk at 0.8-1.25 m/s relative to the camera',
+  8: 'WASD and arrow keys walk at 1.2-1.9 m/s relative to the camera',
   9: 'Shift makes the wade 1.2-1.4 times faster',
   10: 'C cycles the three camera presets',
   11: 'pointer-locked mouse orbit: full 360 degree yaw, pitch held to -30..+60 degrees',
@@ -412,7 +412,7 @@ try {
       const problems = [];
       const walk = await steadySpeed(page, ['KeyW']);
       plainWalkSpeed = walk.speed;
-      if (walk.speed < 0.8 || walk.speed > 1.25) problems.push(`holding W walks at ${walk.speed.toFixed(3)} m/s (expected 0.8-1.25)`);
+      if (walk.speed < 1.2 || walk.speed > 1.9) problems.push(`holding W walks at ${walk.speed.toFixed(3)} m/s (expected 1.2-1.9)`);
       if (walk.directionErrorDegrees > 20) problems.push(`W walks ${walk.directionErrorDegrees.toFixed(1)} degrees away from the camera's forward direction`);
       const arrow = await steadySpeed(page, ['ArrowUp']);
       if (Math.abs(arrow.speed - walk.speed) > 0.05 || arrow.directionErrorDegrees > 20) problems.push(`ArrowUp walks at ${arrow.speed.toFixed(3)} m/s, ${arrow.directionErrorDegrees.toFixed(1)} degrees off forward (W: ${walk.speed.toFixed(3)} m/s)`);

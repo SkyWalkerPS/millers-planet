@@ -1,8 +1,8 @@
 const degrees = Math.PI / 180;
 
 export const locomotionSettings = {
-    walkSpeedMetresPerSecond: 1.0,
-    shiftSpeedMetresPerSecond: 1.3,
+    walkSpeedMetresPerSecond: 1.5,
+    shiftSpeedMetresPerSecond: 1.95,
     startSpringFrequency: 6,
     stopSpringFrequency: 8,
     facingEaseRate: 7,
@@ -180,7 +180,7 @@ export class SuitController {
         if (this.turningInPlace && (!this.hasMoveInput || absoluteError < settings.turnInPlaceFinishRadians)) {
             this.turningInPlace = false;
         }
-        const shiftBlend = Math.min(1, Math.max(0, (this.planarSpeed - settings.walkSpeedMetresPerSecond) / 0.3));
+        const shiftBlend = Math.min(1, Math.max(0, (this.planarSpeed - settings.walkSpeedMetresPerSecond) / (settings.shiftSpeedMetresPerSecond - settings.walkSpeedMetresPerSecond)));
         let turnRateLimit = settings.walkingTurnRateRadiansPerSecond + (settings.shiftTurnRateRadiansPerSecond - settings.walkingTurnRateRadiansPerSecond) * shiftBlend;
         if (this.turningInPlace) {
             turnRateLimit = settings.turnInPlaceRateRadiansPerSecond;

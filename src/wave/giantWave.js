@@ -50,17 +50,17 @@ function diskFractionBelowLine(offsetInRadii) {
 }
 
 export class GiantWave {
-    constructor({ scene, frameUniforms, atmosphere, toward, settings = {} }) {
+    constructor({ scene, frameUniforms, atmosphere, toward, name = "giantWave", settings = {} }) {
         this.settings = { ...giantWaveSettings, ...settings };
         const length = Math.hypot(toward[0], toward[1]);
         this.toward = [toward[0] / length, toward[1] / length];
         this.heightMetres = wavePath.heightMetres;
         this.parameters = new UniformBuffer(scene.getEngine(), undefined, false, "waveParameters");
-        for (const fieldName of ["crestAlongHeightEnabled", "towardAndWidths", "previousCrestAlongLateralCentreHalfExtent", "glowAndRaggedness"]) {
+        for (const fieldName of ["crestAlongHeightEnabled", "towardAndWidths", "previousCrestAlongLateralCentreHalfExtent", "glowAndRaggedness", "recedingCrestAlongHeightEnabled"]) {
             this.parameters.addUniform(fieldName, 4);
         }
         this.parameters.create();
-        this.material = new ShaderMaterial("giantWave", scene, { vertex: "giantWave", fragment: "giantWave" }, {
+        this.material = new ShaderMaterial(name, scene, { vertex: "giantWave", fragment: "giantWave" }, {
             attributes: ["position"],
             uniforms: [],
             shaderLanguage: ShaderLanguage.WGSL,
@@ -69,7 +69,7 @@ export class GiantWave {
         this.material.setUniformBuffer("waveParameters", this.parameters);
         atmosphere.bindSkyResources(this.material);
         this.material.backFaceCulling = false;
-        this.mesh = buildWaveGrid("giantWave", scene, this.settings.lateralSegments, this.settings.acrossSegments);
+        this.mesh = buildWaveGrid(name, scene, this.settings.lateralSegments, this.settings.acrossSegments);
         this.mesh.material = this.material;
         this.mesh.renderingGroupId = 0;
         this.crestAlong = 0;
@@ -82,6 +82,7 @@ export class GiantWave {
         this.lighting = { keyVisibility: 1, skyVisibility: 1, hazeFactor: 1, crestElevationRadians: 0, distanceToCrestMetres: Infinity };
         this.motionAmount = 0;
         this.flowSeconds = 0;
+        this.recedingReflection = { crestAlong: 0, heightMetres: 0, enabled: false };
         this.setEnabled(false);
     }
 
@@ -95,7 +96,7 @@ export class GiantWave {
 
     setEnabled(enabled) {
         this.enabled = enabled;
-        this.mesh.setEnabled(enabled);
+        this.mesh.setEnabled(enabled && this.heightMetres >= 1);
     }
 
     along(x, z) {
@@ -111,6 +112,18 @@ export class GiantWave {
         this.crestAlong = crestAlong;
         this.lateralCentre = lateralCentre;
         this.hasPrevious = true;
+    }
+
+    setHeightFraction(fraction) {
+        this.heightMetres = wavePath.heightMetres * Math.min(1, Math.max(0, fraction));
+        this.mesh.setEnabled(this.enabled && this.heightMetres >= 1);
+    }
+
+    reflectRecedingWave(recedingWave) {
+        const reflection = this.recedingReflection;
+        reflection.enabled = recedingWave.enabled;
+        reflection.crestAlong = recedingWave.crestAlong;
+        reflection.heightMetres = recedingWave.heightMetres;
     }
 
     discardHistory() {
@@ -195,6 +208,8 @@ export class GiantWave {
         parameters.updateFloat4("towardAndWidths", this.toward[0], this.toward[1], settings.frontWidthMetres, settings.backWidthMetres);
         parameters.updateFloat4("previousCrestAlongLateralCentreHalfExtent", this.previousCrestAlong, this.lateralCentre, settings.lateralHalfExtentMetres, this.lateralOrigin);
         parameters.updateFloat4("glowAndRaggedness", settings.glowGain, settings.raggedMetres, this.motionAmount, this.flowSeconds);
+        const receding = this.recedingReflection;
+        parameters.updateFloat4("recedingCrestAlongHeightEnabled", receding.crestAlong, receding.heightMetres, receding.enabled ? 1 : 0, 0);
         parameters.update();
     }
 }

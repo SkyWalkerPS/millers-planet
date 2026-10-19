@@ -65,6 +65,19 @@ export const FLIGHT_TIMELINES = {
       { untilSeconds: 30, label: 'brace, underwater and drain (input locked from T-8)', input: { keys: [] } },
     ],
   },
+  aftermath: {
+    phase: 7,
+    summary: 'phase 7: the first wave after it passes, T+6 to T+36 in player mode: the drain and the hand-over to the receding wave, turning round to watch it go, walking and running after it, then turning back to the next wave rising',
+    setup: [['debug.enterPlayerMode'], ['debug.setAstronautPosition', { x: 0, z: 0, yawDegrees: 0 }], ['skipTo', { waveIndex: 1, phase: 'impact', secondsIntoPhase: 6 }]],
+    segments: [
+      { untilSeconds: 6, label: 'drain and stand up; control back and the receding wave takes over at T+11', input: { keys: [] } },
+      { untilSeconds: 10, label: 'turn the camera half a turn to the receding wave', input: { keys: [], mouseCountsPerSecond: [436, 0] } },
+      { untilSeconds: 18, label: 'walk after the receding wave (W)', input: { keys: ['KeyW'] } },
+      { untilSeconds: 22, label: 'Shift walk after it', input: { keys: ['ShiftLeft', 'KeyW'] } },
+      { untilSeconds: 26, label: 'turn back toward the next wave rising', input: { keys: [], mouseCountsPerSecond: [436, 0] } },
+      { untilSeconds: 30, label: 'look up and around', input: { keys: [], mouseCountsPerSecond: [200, -100] } },
+    ],
+  },
   walk: {
     phase: 5,
     summary: 'phase 5: the astronaut in player mode driven by injected keys and mouse: walking, orbiting the camera while walking, Shift, stopping, the close and first-person presets, a turn back toward the camera, and looking up at Gargantua',

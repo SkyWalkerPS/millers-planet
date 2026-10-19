@@ -3,7 +3,10 @@ struct WaveParameters {
     towardAndWidths: vec4f,
     previousCrestAlongLateralCentreHalfExtent: vec4f,
     glowAndRaggedness: vec4f,
+    recedingCrestAlongHeightEnabled: vec4f,
 };
+
+const WAVE_HAZE_KEPT: f32 = 0.55;
 
 fn waveToward() -> vec2f {
     return waveParameters.towardAndWidths.xy;

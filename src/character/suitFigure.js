@@ -341,7 +341,7 @@ export class SuitFigure {
         const gaitSpeed = this.gaitMode === GAIT_STOPPING ? Math.max(speed, settings.stoppingMinimumGaitSpeed) : Math.max(speed, 0.15);
         this.phase = (this.phase + (cadenceStepsPerMinute(gaitSpeed) / 120) * step) % 1;
         const duty = dutyFactor(gaitSpeed);
-        const heelLift = settings.heelLiftAtWalkRadians + (settings.heelLiftAtShiftRadians - settings.heelLiftAtWalkRadians) * clamp((speed - 1) / 0.3, 0, 1);
+        const heelLift = settings.heelLiftAtWalkRadians + (settings.heelLiftAtShiftRadians - settings.heelLiftAtWalkRadians) * clamp((speed - controller.settings.walkSpeedMetresPerSecond) / (controller.settings.shiftSpeedMetresPerSecond - controller.settings.walkSpeedMetresPerSecond), 0, 1);
         const impact = clamp(0.35 + 0.6 * speed, 0, 1.2);
         for (let footIndex = 0; footIndex < 2; footIndex++) {
             const foot = this.feet[footIndex];

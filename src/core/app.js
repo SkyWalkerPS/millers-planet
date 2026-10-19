@@ -59,7 +59,7 @@ const cameraJumpCosine = Math.cos(25 * degreesToRadians);
 const largeCameraJumpCosine = Math.cos(60 * degreesToRadians);
 const cameraJumpPreemptiveCut = 0.2;
 const largeCameraJumpPreemptiveCut = 0.35;
-const waveCropBands = { halfWidthMetres: 60, crestDepthsMetres: [18, 45], faceDepthsMetres: [250, 500] };
+const waveCropBands = { halfWidthMetres: 250, crestDepthsMetres: [25, 90], faceDepthsMetres: [600, 1100] };
 
 function easeInOut(fraction) {
     const clamped = Math.min(1, Math.max(0, fraction));
@@ -201,6 +201,7 @@ export class MillersPlanetApp {
         this.placeAstronaut(0, 0, openingYawRadians);
         const [waveTravelX, waveTravelZ] = this.seaSimulation.settings.windTravelDirection;
         this.giantWave = new GiantWave({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, toward: [-waveTravelX, -waveTravelZ] });
+        this.recedingWave = new GiantWave({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, toward: [-waveTravelX, -waveTravelZ], name: "recedingWave" });
         for (const material of [this.seaSurface.material, ...this.suitRenderer.materials, this.lander.material]) {
             material.setUniformBuffer("waveParameters", this.giantWave.parameters);
         }
@@ -294,7 +295,7 @@ export class MillersPlanetApp {
     }
 
     materialsSamplingGargantua() {
-        return [this.skyDome.material, this.seaSurface.material, ...this.giantWave.materials, this.underwaterView.material, ...this.suitRenderer.materials, this.lander.material];
+        return [this.skyDome.material, this.seaSurface.material, ...this.giantWave.materials, ...this.recedingWave.materials, this.underwaterView.material, ...this.suitRenderer.materials, this.lander.material];
     }
 
     async measureAndApplyKeyLight() {
@@ -844,6 +845,8 @@ export class MillersPlanetApp {
         } else if (name === "wave") {
             this.giantWave.setEnabled(isOn);
             this.giantWave.discardHistory();
+            this.recedingWave.setEnabled(false);
+            this.recedingWave.discardHistory();
         } else if (name === "astronaut") {
             this.suitRenderer.setVisible(isOn);
         } else if (name === "ship") {
@@ -1598,6 +1601,7 @@ export class MillersPlanetApp {
         this.rippleField.shiftOrigin(deltaX, deltaZ);
         this.lander.shiftOrigin(deltaX, deltaZ);
         this.giantWave.shiftOrigin(deltaX, deltaZ);
+        this.recedingWave.shiftOrigin(deltaX, deltaZ);
         if (this.lastImpact) {
             this.lastImpact.x -= deltaX;
             this.lastImpact.z -= deltaZ;
@@ -1609,6 +1613,7 @@ export class MillersPlanetApp {
     resetWorldOrigin() {
         this.atmosphere.shiftOrigin(-this.worldOriginX, -this.worldOriginZ);
         this.giantWave.resetOrigin();
+        this.recedingWave.resetOrigin();
         this.worldOriginX = 0;
         this.worldOriginZ = 0;
         this.seaSurface.setWorldOrigin(0, 0);
@@ -1622,10 +1627,13 @@ export class MillersPlanetApp {
         const followAstronaut = this.systemsEnabled.astronaut;
         const referenceX = followAstronaut ? this.suitController.positionX : camera.x;
         const referenceZ = followAstronaut ? this.suitController.positionZ : camera.z;
+        wave.setHeightFraction(state.heightFraction);
         wave.place(wave.along(referenceX, referenceZ) + state.frontDistanceMetres + wave.settings.frontWidthMetres + wave.crestOffsetAt(referenceX, referenceZ), wave.lateral(camera.x, camera.z));
         const secondsMoving = waveSchedule.approachSeconds - state.secondsBeforeImpact;
         wave.motionAmount = Math.min(1, Math.max(0, secondsMoving / 2));
         wave.flowSeconds = Math.max(0, secondsMoving);
+        this.updateRecedingWave(state, seconds, referenceX, referenceZ, camera);
+        wave.reflectRecedingWave(this.recedingWave);
         wave.writeParameters();
         wave.updateLighting(camera.x, camera.y, camera.z, Math.asin(Math.min(1, Math.max(-1, this.keyLightDirection[1]))), this.keyLightAngularRadiusRadians);
         this.updateUnderwater(camera);
@@ -1647,6 +1655,27 @@ export class MillersPlanetApp {
                 this.shipWavesApplied = completedWaves;
             }
         }
+    }
+
+    updateRecedingWave(state, seconds, referenceX, referenceZ, camera) {
+        const receding = this.recedingWave;
+        const visible = this.systemsEnabled.wave && this.giantWave.enabled && state.previousIndex >= 1 && state.previousHeightFraction > 0;
+        if (receding.enabled !== visible) {
+            receding.setEnabled(visible);
+            receding.discardHistory();
+        }
+        if (!visible) {
+            return;
+        }
+        const anchoredAtImpact = this.lastImpact && this.lastImpact.waveIndex === state.previousIndex;
+        const anchorX = anchoredAtImpact ? this.lastImpact.x : referenceX;
+        const anchorZ = anchoredAtImpact ? this.lastImpact.z : referenceZ;
+        receding.setHeightFraction(state.previousHeightFraction);
+        receding.place(receding.along(anchorX, anchorZ) + state.previousFrontDistanceMetres + receding.settings.frontWidthMetres + receding.crestOffsetAt(anchorX, anchorZ), receding.lateral(camera.x, camera.z));
+        const secondsSinceImpact = seconds - impactSecondsOf(state.previousIndex);
+        receding.motionAmount = 1;
+        receding.flowSeconds = waveSchedule.approachSeconds + Math.max(0, secondsSinceImpact);
+        receding.writeParameters();
     }
 
     updateAudio(state) {
@@ -1723,6 +1752,7 @@ export class MillersPlanetApp {
         const seconds = secondsForPhase(waveIndex, phase, secondsIntoPhase);
         this.clock.jumpTo(seconds);
         this.giantWave.discardHistory();
+        this.recedingWave.discardHistory();
         this.invalidateTemporalHistory();
         return { timeSeconds: seconds, ...this.waveStats() };
     }
@@ -1741,6 +1771,9 @@ export class MillersPlanetApp {
             schedule: { firstImpact: waveSchedule.firstImpactSeconds, period: waveSchedule.periodSeconds, mountainsLead: waveSchedule.approachSeconds, braceLead: waveSchedule.braceSeconds, underwater: waveSchedule.underwaterSeconds, drain: waveSchedule.drainSeconds },
             frontDistanceMetres: state.frontDistanceMetres,
             visible: this.giantWave.enabled,
+            crestAlongMetres: this.giantWave.crestAlong,
+            heightMetres: this.giantWave.heightMetres,
+            receding: { visible: this.recedingWave.enabled, crestAlongMetres: this.recedingWave.crestAlong, heightMetres: this.recedingWave.heightMetres },
             crestDistanceMetres: lighting.distanceToCrestMetres,
             astronautCrest: this.astronautCrestStats(),
             toward: this.giantWave.toward.slice(),
@@ -2069,7 +2102,7 @@ export class MillersPlanetApp {
 
     async warmUp() {
         this.testScene.lateMarkerWarmed.setEnabled(true);
-        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.giantWave.meshes, this.underwaterView.mesh, ...this.suitRenderer.meshes, ...this.lander.meshesForWarmUp]);
+        await this.waitForAllReady([...this.testScene.allMeshes, this.testScene.lateMarkerWarmed, this.skyDome.mesh, this.seaSurface.mesh, ...this.giantWave.meshes, ...this.recedingWave.meshes, this.underwaterView.mesh, ...this.suitRenderer.meshes, ...this.lander.meshesForWarmUp]);
         this.postChain.settings.outputBlack = 1;
         this.renderFrame(performance.now(), 1 / 60);
         await this.device.queue.onSubmittedWorkDone();

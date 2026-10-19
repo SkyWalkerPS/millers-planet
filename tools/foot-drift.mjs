@@ -1,4 +1,4 @@
-import { SuitController } from '../src/character/suitController.js';
+import { SuitController, locomotionSettings } from '../src/character/suitController.js';
 import { SOLE_POINT_NAMES, SuitFigure, FOOT_EVENT_HEEL_STRIKE, cadenceStepsPerMinute, strideLengthMetres } from '../src/character/suitFigure.js';
 import { createSeabedHeightFunction } from '../src/sea/seabedHeight.js';
 import { defaultSeaSurfaceSettings } from '../src/sea/seaSurfaceSettings.js';
@@ -119,9 +119,9 @@ export function runNodeSimulation({ deltaSecondsAt, durationSeconds = 27, script
     stancesLeft: figure.feet[0].stanceSerial,
     stancesRight: figure.feet[1].stanceSerial,
     measuredCadence,
-    expectedCadence: cadenceStepsPerMinute(1),
+    expectedCadence: cadenceStepsPerMinute(locomotionSettings.walkSpeedMetresPerSecond),
     measuredStepLength,
-    expectedStepLength: strideLengthMetres(1) / 2,
+    expectedStepLength: strideLengthMetres(locomotionSettings.walkSpeedMetresPerSecond) / 2,
     pelvisVaultMetres: pelvisHighest - pelvisLowest,
     finalPosition: [controller.positionX, controller.positionZ],
   };

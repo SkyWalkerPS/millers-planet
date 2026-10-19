@@ -22,6 +22,9 @@ const parityLateralRangeMetres = 20000;
 const parityCrestOffsetToleranceMetres = 0.05;
 const parityHeightScaleTolerance = 1e-4;
 const lateralSearchRangeMetres = 20000;
+const recedingSampleSeconds = [10.95, 11.05, 30, 60, 100, 150, 250];
+const passingSpeedMetresPerSecond = 200;
+const fullWaveHeightMetres = 2400;
 const problems = [];
 const report = { waves: [], reload: null };
 mkdirSync(evidenceDirectory(), { recursive: true });
@@ -176,6 +179,42 @@ try {
     const endDifference = Math.abs(worst.underwaterUntil - calmest.underwaterUntil);
     if (startDifference > 0.05 || endDifference > 0.05) problems.push(`the underwater view starts ${startDifference.toFixed(3)} s and ends ${endDifference.toFixed(3)} s apart between laterals ${calmest.lateralMetres} m and ${worst.lateralMetres} m (limit 0.05 s)`);
   }
+  const recedingSamples = await page.evaluate(pageExpression(`(async () => {
+    const api = window.millersPlanet;
+    const impact = 300;
+    api.freezeTime(null);
+    api.debug.setAstronautPosition({ x: 0, z: 0, yawDegrees: 0 });
+    const samples = [];
+    for (const secondsAfterImpact of ${JSON.stringify(recedingSampleSeconds)}) {
+      api.freezeTime(impact + secondsAfterImpact);
+      await api.renderFrames(2);
+      const stats = api.stats();
+      const [towardX, towardZ] = stats.wave.toward;
+      const astronautAlong = stats.astronaut.position[0] * towardX + stats.astronaut.position[2] * towardZ;
+      samples.push({ secondsAfterImpact, incoming: { visible: stats.wave.visible, crestAheadMetres: stats.wave.crestAlongMetres - astronautAlong, heightMetres: stats.wave.heightMetres }, receding: { ...stats.wave.receding, crestAheadMetres: stats.wave.receding.crestAlongMetres - astronautAlong } });
+    }
+    api.freezeTime(null);
+    return samples;
+  })()`), { timeoutMs: 120000 });
+  report.recedingWave = recedingSamples;
+  const sampleAt = (seconds) => recedingSamples.find((sample) => sample.secondsAfterImpact === seconds);
+  const beforeHandOver = sampleAt(10.95);
+  const afterHandOver = sampleAt(11.05);
+  if (beforeHandOver.receding.visible) problems.push('receding wave: visible before the passed wave hands over (T+10.95)');
+  if (!afterHandOver.receding.visible) problems.push('receding wave: not visible after the hand-over (T+11.05)');
+  const handOverJump = afterHandOver.receding.crestAheadMetres - (beforeHandOver.incoming.crestAheadMetres - passingSpeedMetresPerSecond * 0.1);
+  if (Math.abs(handOverJump) > 2) problems.push(`receding wave: the crest jumps ${handOverJump.toFixed(1)} m at the hand-over`);
+  if (afterHandOver.incoming.heightMetres > 5) problems.push(`the next wave starts ${afterHandOver.incoming.heightMetres.toFixed(0)} m tall instead of rising from the sea`);
+  for (const seconds of [30, 100]) {
+    const sample = sampleAt(seconds);
+    const expectedAhead = afterHandOver.receding.crestAheadMetres - passingSpeedMetresPerSecond * (seconds - afterHandOver.secondsAfterImpact);
+    if (!sample.receding.visible || Math.abs(sample.receding.crestAheadMetres - expectedAhead) > 3) problems.push(`receding wave at T+${seconds}: visible ${sample.receding.visible}, crest ${sample.receding.crestAheadMetres.toFixed(0)} m ahead (expected ${expectedAhead.toFixed(0)})`);
+  }
+  if (Math.abs(sampleAt(150).receding.heightMetres - fullWaveHeightMetres / 2) > fullWaveHeightMetres * 0.05) problems.push(`receding wave at T+150: ${sampleAt(150).receding.heightMetres.toFixed(0)} m tall (expected about half height while sinking)`);
+  if (sampleAt(250).receding.visible) problems.push('receding wave at T+250: still drawn after sinking');
+  if (Math.abs(sampleAt(60).incoming.heightMetres - fullWaveHeightMetres) > 1) problems.push(`the next wave at T+60 is ${sampleAt(60).incoming.heightMetres.toFixed(0)} m tall (expected full height)`);
+  for (const sample of recedingSamples) console.log(`T+${sample.secondsAfterImpact} s: next wave ${sample.incoming.visible ? `${(sample.incoming.crestAheadMetres / 1000).toFixed(2)} km ahead, ${sample.incoming.heightMetres.toFixed(0)} m tall` : 'hidden'}; passed wave ${sample.receding.visible ? `${(-sample.receding.crestAheadMetres / 1000).toFixed(2)} km behind, ${sample.receding.heightMetres.toFixed(0)} m tall` : 'hidden'}`);
+
   await page.reload();
   await waitForMillersPlanetReady(page);
   report.reload = await page.evaluate(pageExpression(`(() => {
