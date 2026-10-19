@@ -37,11 +37,11 @@ export function createHudRow(parent) {
     row.id = "hud";
     Object.assign(row.style, {
         position: "fixed",
-        left: "16px",
-        top: "16px",
+        left: "max(clamp(10px, 3vw, 16px), env(safe-area-inset-left))",
+        top: "max(clamp(10px, 3vw, 16px), env(safe-area-inset-top))",
         display: "flex",
         alignItems: "flex-start",
-        gap: "10px",
+        gap: "clamp(6px, 2vw, 10px)",
         pointerEvents: "none",
         userSelect: "none",
     });
@@ -54,7 +54,7 @@ function createGlassPanel(parent, id, ariaLabel) {
     panel.id = id;
     panel.setAttribute("aria-label", ariaLabel);
     Object.assign(panel.style, {
-        padding: "10px 14px 11px",
+        padding: "clamp(7px, 2vw, 10px) clamp(9px, 2.8vw, 14px) clamp(8px, 2.2vw, 11px)",
         borderRadius: "10px",
         background: "rgba(24, 24, 26, 0.26)",
         border: "1px solid rgba(255, 255, 255, 0.14)",
@@ -62,14 +62,15 @@ function createGlassPanel(parent, id, ariaLabel) {
         backdropFilter: "blur(14px) saturate(1.15)",
         webkitBackdropFilter: "blur(14px) saturate(1.15)",
         color: "#efece6",
-        font: "500 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        font: "500 clamp(10px, 2.7vw, 13px)/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         fontVariantNumeric: "tabular-nums",
         letterSpacing: "0.02em",
+        whiteSpace: "nowrap",
         pointerEvents: "none",
         userSelect: "none",
         display: "grid",
         gridTemplateColumns: "auto auto",
-        columnGap: "14px",
+        columnGap: "clamp(8px, 2.6vw, 14px)",
         rowGap: "2px",
     });
     const addRow = (label) => {

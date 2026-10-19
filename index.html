@@ -2,18 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Miller's Planet</title>
 <link rel="icon" href="data:,">
 <style>
 html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
-#scene { display: block; width: 100vw; height: 100vh; touch-action: none; outline: none; }
+#scene { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; outline: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #webgpu-missing { display: none; position: fixed; left: 0; right: 0; top: 50%; transform: translateY(-50%); margin: 0; padding: 0 16px; text-align: center; color: #d8d4cc; font: 16px/1.5 system-ui, -apple-system, sans-serif; }
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
-<p id="webgpu-missing">Miller's Planet needs WebGPU. Open it in a recent desktop Chrome or Edge.</p>
+<p id="webgpu-missing">Miller's Planet needs WebGPU. Open it in a recent Chrome or Edge.</p>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

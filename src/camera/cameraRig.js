@@ -64,6 +64,7 @@ export class CameraRig {
         this.timeSeconds = 0;
         this.position = new Float64Array(3);
         this.verticalFieldOfViewRadians = cameraPresets[PRESET_THIRD_PERSON].verticalFieldOfViewDegrees * degrees;
+        this.shoulderScale = 1;
         this.firstPersonAmount = 0;
         this.focusDistanceMetres = 3.2;
         this.armLengthMetres = 3.2;
@@ -211,9 +212,10 @@ export class CameraRig {
         const rightX = Math.cos(yaw);
         const rightZ = -Math.sin(yaw);
         const pivotHeightOffset = preset.pivotHeightMetres - cameraPresets[PRESET_THIRD_PERSON].pivotHeightMetres;
-        out[0] = this.pivotX.position + rightX * preset.shoulderMetres - forwardX * distance;
+        const shoulder = preset.shoulderMetres * this.shoulderScale;
+        out[0] = this.pivotX.position + rightX * shoulder - forwardX * distance;
         out[1] = this.pivotY.position + pivotHeightOffset + preset.verticalArmMetres - forwardY * distance;
-        out[2] = this.pivotZ.position + rightZ * preset.shoulderMetres - forwardZ * distance;
+        out[2] = this.pivotZ.position + rightZ * shoulder - forwardZ * distance;
         return out;
     }
 
@@ -327,4 +329,9 @@ export class CameraRig {
         const helmetZ = figure.world[5 * 16 + 14];
         this.focusDistanceMetres = firstPersonAmount > 0.5 ? 30 : Math.hypot(helmetX - positionX, helmetY - positionY, helmetZ - positionZ);
     }
+}
+
+export function shoulderScaleForAspect(aspect) {
+    const fraction = Math.min(1, Math.max(0, (aspect - 0.6) / (1.3 - 0.6)));
+    return fraction * fraction * (3 - 2 * fraction);
 }

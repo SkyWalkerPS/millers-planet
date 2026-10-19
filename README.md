@@ -16,7 +16,7 @@ A walkable, real-time recreation of the water planet from *Interstellar*, runnin
 
 ## Run it
 
-You need a desktop browser with WebGPU: a recent Chrome or Edge. Without WebGPU the page shows one line saying so. It was developed and measured in Chrome 155 on macOS; other browsers and systems have not been tested.
+You need a browser with WebGPU: a recent Chrome or Edge on a computer, or a phone or tablet whose browser has WebGPU. Without WebGPU the page shows one line saying so. It was developed and measured in Chrome 155 on macOS. The touch controls and the phone layout were tested in that Chrome at phone and tablet sizes with touch emulation, not on a real phone, so how smoothly it runs on a phone is not known.
 
 ```bash
 npm install
@@ -37,6 +37,17 @@ The first click on the canvas captures the mouse and starts the sound.
 | Shift | Wade a little faster (about 1.95 m/s) |
 | C | Cycle the three views: third person, closer third person, first person |
 | Esc | Release the mouse |
+
+On a phone or tablet:
+
+| Touch | Action |
+|---|---|
+| Drag on the left half and hold | A floating virtual joystick appears where your thumb lands; the astronaut walks in the direction you drag and keeps going while you hold. Partial drags walk slower |
+| Drag past the ring | Wade faster, like Shift |
+| Drag on the right half | Look around (turn and tilt the camera) |
+| View button | Cycle the three views, like C |
+
+On tall, narrow screens the camera widens its view and centres the astronaut, so the whole figure and Gargantua stay in frame.
 
 There is no zoom: the mouse wheel and trackpad pinch do nothing, and the three views on C are the only distances. There is no jumping, combat or interaction either. The movement follows *God of War* (2018): the astronaut turns toward where you walk, slows in turns, takes small steps to turn on the spot, and the camera eases back behind you while you walk. From eight seconds before a wave hits until it has drained, the controls are locked and a scripted camera takes over; your own view comes back afterwards.
 
@@ -141,7 +152,7 @@ Measured without corrections, the GPU time reads higher: 11 to 20 ms (p99), with
 
 ## Known limitations
 
-- Desktop Chrome and Edge only (WebGPU); no phones, tablets, Safari or Firefox.
+- Needs WebGPU (recent Chrome or Edge). Phones and tablets get touch controls, but they were only tested by emulation in desktop Chrome; real-phone speed is not measured, and Safari and Firefox are not tested.
 - Smoothness was measured in headless Chrome, not on a real display, at 120 Hz, or in a recording.
 - Now and then the frame rate slips while macOS changes the GPU clock: a single late frame (33 ms) in very light views about once in six to ten 30-second runs, and in one of 21 runs a two-second dip to 30 frames per second after an instant camera flick. The cause is unknown.
 - No splash droplets: water contact shows as wakes, rings and whitewater.

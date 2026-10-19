@@ -37,7 +37,7 @@ import { SuitController, bodySphereHeightsMetres, bodySphereRadiusMetres, closes
 import { FOOT_EVENT_HEEL_STRIKE, SuitFigure } from "../character/suitFigure.js";
 import { SuitRenderer } from "../character/suitRender.js";
 import { BONE_HAND_LEFT, BONE_HAND_RIGHT, BONE_HELMET, BONE_NECK, BONE_PELVIS, BONE_UPPER_ARM_LEFT, BONE_UPPER_ARM_RIGHT } from "../character/suitSkeleton.js";
-import { CameraRig, cameraPresets } from "../camera/cameraRig.js";
+import { CameraRig, cameraPresets, shoulderScaleForAspect } from "../camera/cameraRig.js";
 import { scriptedInputAt, scriptedWalk } from "../character/scriptedWalk.js";
 import { ClockPanel, WaveCountdownPanel, createHudRow, earthSecondsPerMillerSecond, formatEarthClock, formatMillerClock } from "../hud/clocks.js";
 import { shotDefinitions, orbitCameraPose } from "../debug/shots.js";
@@ -921,6 +921,7 @@ export class MillersPlanetApp {
         const visible = this.parameters.hudVisible && (!shot || Boolean(shot.showHud));
         this.clockPanel?.setVisible(visible);
         this.waveCountdownPanel?.setVisible(visible && this.systemsEnabled.wave);
+        this.input?.touchControls?.setHudVisible(visible);
     }
 
     enterPlayerMode() {
@@ -1276,11 +1277,17 @@ export class MillersPlanetApp {
         if (held("KeyA") || held("ArrowLeft")) {
             moveRight -= 1;
         }
+        const touchMove = input.touchMove;
+        const touchMoveActive = touchMove.pointerId !== null && moveForward === 0 && moveRight === 0;
+        if (touchMoveActive) {
+            moveForward = touchMove.moveForward;
+            moveRight = touchMove.moveRight;
+        }
         const player = this.playerInput;
         const scripted = this.scriptedMoveOverride;
         player.moveForward = scripted ? scripted.moveForward : moveForward;
         player.moveRight = scripted ? scripted.moveRight : moveRight;
-        player.shift = scripted ? Boolean(scripted.shift) : held("ShiftLeft") || held("ShiftRight");
+        player.shift = scripted ? Boolean(scripted.shift) : held("ShiftLeft") || held("ShiftRight") || (touchMoveActive && touchMove.run);
         input.consumeMouseDelta(this.mouseDeltaScratch);
         player.mouseX = this.mouseDeltaScratch[0];
         player.mouseY = this.mouseDeltaScratch[1];
@@ -1925,6 +1932,7 @@ export class MillersPlanetApp {
             this.invalidateTemporalHistory();
         }
         this.ensureBeautyTargets(rafTimeMilliseconds);
+        this.cameraRig.shoulderScale = shoulderScaleForAspect(outputWidth / outputHeight);
         this.updateCamera(this.clock.lastDeltaSeconds > 0 ? this.clock.lastDeltaSeconds : Math.min(deltaSeconds, 0.1));
         this.cameraFrame.prepare(outputWidth, outputHeight, this.beautyTargets.internalWidth, this.beautyTargets.internalHeight);
         this.testScene.update(this.clock.timeSeconds, frameIndex);

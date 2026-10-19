@@ -2,6 +2,17 @@ import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 const maximumJitterPhaseCount = 32;
+const narrowestAspectWithFullSideView = 1.5;
+const widestAdaptedVerticalFieldOfViewRadians = (95 * Math.PI) / 180;
+
+export function verticalFieldOfViewForAspect(designVerticalFieldOfViewRadians, aspect) {
+    if (!(aspect > 0) || aspect >= narrowestAspectWithFullSideView) {
+        return designVerticalFieldOfViewRadians;
+    }
+    const keptHalfWidthTangent = Math.tan(designVerticalFieldOfViewRadians * 0.5) * narrowestAspectWithFullSideView;
+    const widened = 2 * Math.atan(keptHalfWidthTangent / aspect);
+    return Math.max(designVerticalFieldOfViewRadians, Math.min(widestAdaptedVerticalFieldOfViewRadians, widened));
+}
 
 function haltonValue(index, base) {
     let fraction = 1;
@@ -35,6 +46,7 @@ export class CameraFrame {
         this.camera.fov = (56 * Math.PI) / 180;
         scene.activeCamera = this.camera;
         this.verticalFieldOfViewRadians = this.camera.fov;
+        this.designVerticalFieldOfViewRadians = this.camera.fov;
         this.nearPlaneMetres = 0.05;
         this.yawRadians = 0;
         this.pitchRadians = 0;
@@ -68,6 +80,7 @@ export class CameraFrame {
     }
 
     setVerticalFieldOfView(radians) {
+        this.designVerticalFieldOfViewRadians = radians;
         this.verticalFieldOfViewRadians = radians;
         this.camera.fov = radians;
     }
@@ -93,6 +106,8 @@ export class CameraFrame {
         const cosinePitch = Math.cos(this.pitchRadians);
         this.forward.set(Math.sin(this.yawRadians) * cosinePitch, Math.sin(this.pitchRadians), Math.cos(this.yawRadians) * cosinePitch);
         const aspect = outputWidth / outputHeight;
+        this.verticalFieldOfViewRadians = verticalFieldOfViewForAspect(this.designVerticalFieldOfViewRadians, aspect);
+        camera.fov = this.verticalFieldOfViewRadians;
         const scaleRatio = Math.max(outputWidth / internalWidth, 1);
         const phaseCount = Math.min(maximumJitterPhaseCount, Math.ceil(8 * scaleRatio * scaleRatio));
         if (this.jitterEnabled) {
