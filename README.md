@@ -143,24 +143,22 @@ This is a non-commercial fan tribute to *Interstellar*. It uses no frames, model
 
 ## Performance
 
-Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on mains power, from the production build, one change before the current one: the waves still waited on the horizon before their last minute, and came every five minutes. The always-moving waves have not been re-measured yet; a far wave covers less of the screen than the parked one did, so I expect them to cost the same or less, but that is not checked. There were six scripted 30-second flights, each run three times:
+Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, from the production build of this version, on battery (38% falling to 25%). There were six scripted 30-second flights, each run three times:
 - walking, orbiting the camera and switching views, with and without the clocks;
 - sweeping over the sea, including an instant flick from the sky down to the water;
-- the first wave, from 22 seconds before impact to 8 seconds after, through the brace, the underwater pass that the ride over the crest has since replaced, and the drain;
-- the half minute after the wave passes: turning round to watch it go, then walking and running after it;
-- a stress test on a test scene that jumps from looking straight up to looking straight down.
+- the first wave, from 22 seconds before impact to 8 seconds after: walking toward it, the brace, and the ride up the face, over the crest and down the back;
+- the drain after the landing and the half minute after it: turning round to watch the wave go, then walking and running after it;
+- a stress test on a test scene that jumps instantly from looking straight up to looking straight down.
 
-GPU time at full clock speed stayed at most 11.0 ms (p99) and 14.3 ms (maximum), against a 16.7 ms frame. The internal resolution stayed at 100% most of the time and dipped to 50% at worst, right after the instant camera jumps. In 17 of the first 18 runs, every frame arrived within 16.8 ms of the one before. The other, a sea flight, dropped to 30 frames per second for about two seconds after the flick down to the water, while the GPU clock ran up to 4.8 times slower than its fastest and a macOS photo-analysis process was busy; the work itself still fitted (12.4 ms at full clock). A repeat of the sea flight was clean in all three runs. Earlier builds also showed a rarer kind of hitch, a single late frame in very light views, about once in six to ten runs. I have not proven the cause of either.
+In the five flights that follow play (15 runs), GPU time at full clock speed stayed at most 11.2 ms (p99) and 11.8 ms (maximum), against a 16.7 ms frame, and every frame arrived within 16.8 ms of the one before. The internal resolution stayed at 100% most of the time and dipped to 55% at worst, right after the instant flick down to the sea. The stress test failed. In two of its six runs one or two frames arrived 33 ms late, once in a light sweep and once just after the jump from the sky to the ground, and in one run the frame right after the jump took 17.0 ms at full clock. The previous version, run straight afterwards under the same conditions, failed it the same way (17.5 ms and one late frame). Measured back to back, the frame after the jump costs the same in both (7.6 ms at 65% resolution), so I think the cause is how the Mac's GPU clock reacts to an instant jump from a light view to a heavy one while on battery, not extra work; the same flight passed every run on mains power the day before. I have not proven the cause.
 
-The ride over the crest has not been through these flights yet. Timed frame by frame without pacing, at 1728 × 1117 with the render scale pinned to 0.7, it costs the same as the brace and the landing around it: 2.3 to 3.3 ms median in each second of the ride, against 3.3 ms in the last second of the brace.
-
-Measured without corrections, the GPU time reads higher: 11 to 20 ms (p99), with single frames up to 33 ms right after the instant camera jumps. The cause is macOS slowing the GPU clock whenever a frame finishes early. I have not checked a real display or a screen recording.
+Measured without corrections, the GPU time reads higher: 11 to 16 ms (p99), with single frames up to 34 ms right after the instant camera jumps. The cause is macOS slowing the GPU clock whenever a frame finishes early. I have not checked a real display or a screen recording.
 
 ## Known limitations
 
 - Needs WebGPU (recent Chrome or Edge). Phones and tablets get touch controls, but they were only tested by emulation in desktop Chrome; real-phone speed is not measured, and Safari and Firefox are not tested.
 - Smoothness was measured in headless Chrome, not on a real display, at 120 Hz, or in a recording.
-- Now and then the frame rate slips while macOS changes the GPU clock: a single late frame (33 ms) in very light views about once in six to ten 30-second runs, and in one of 21 runs a two-second dip to 30 frames per second after an instant camera flick. The cause is unknown.
+- Now and then the frame rate slips while macOS changes the GPU clock: a single late frame (33 ms) in very light views or just after an instant camera jump, a few times in every twenty or so 30-second runs, and once a two-second dip to 30 frames per second after an instant camera flick. The cause is unknown.
 - No splash droplets: water contact shows as wakes, rings and whitewater.
 - The sea reflects the sky and the wave, but not the ship or the astronaut, so from far away the lander can look as if it stands on the water.
 - Shadows are soft stand-ins cast by simple shapes; nothing shadows itself.
