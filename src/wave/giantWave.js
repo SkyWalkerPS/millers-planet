@@ -5,6 +5,7 @@ import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage";
 import { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer";
 import { wavePath } from "./waveTimeline.js";
 import { waveLocalShapeAt } from "./waveLocalShape.js";
+import { drawnWaveHeight, waveMeshLayout } from "./waveRide.js";
 
 export const giantWaveSettings = {
     frontWidthMetres: 350,
@@ -14,7 +15,7 @@ export const giantWaveSettings = {
     glowGain: 2.0,
     raggedMetres: 9,
     lateralSegments: 256,
-    acrossSegments: 96,
+    acrossSegments: waveMeshLayout.acrossSegments,
     skyBlockedByWall: 0.85,
     hazeKeptInShadow: 0.2,
 };
@@ -146,10 +147,10 @@ export class GiantWave {
         this.discardHistory();
     }
 
-    localCrestAt(x, z, out) {
+    localCrestAt(x, z, out, crestAlong = this.crestAlong, heightMetres = this.heightMetres) {
         waveLocalShapeAt(this.lateral(x, z) + this.lateralOrigin, this.localShape);
-        out.aheadMetres = this.crestAlong - this.localShape.crestOffsetMetres - this.along(x, z);
-        out.heightMetres = this.heightMetres * this.localShape.heightScale;
+        out.aheadMetres = crestAlong - this.localShape.crestOffsetMetres - this.along(x, z);
+        out.heightMetres = heightMetres * this.localShape.heightScale;
         out.crestOffsetMetres = this.localShape.crestOffsetMetres;
         return out;
     }
@@ -175,12 +176,16 @@ export class GiantWave {
         return crestHeightMetres * remaining * remaining;
     }
 
-    waterHeightAt(x, z) {
+    crestAlongFor(referenceX, referenceZ, frontDistanceMetres) {
+        return this.along(referenceX, referenceZ) + frontDistanceMetres + this.settings.frontWidthMetres + this.crestOffsetAt(referenceX, referenceZ);
+    }
+
+    waterHeightAt(x, z, crestAlong = this.crestAlong, heightMetres = this.heightMetres) {
         if (!this.enabled) {
             return -Infinity;
         }
-        const crest = this.localCrestAt(x, z, this.scratchCrest);
-        return this.profileHeightAt(crest.aheadMetres, crest.heightMetres);
+        const crest = this.localCrestAt(x, z, this.scratchCrest, crestAlong, heightMetres);
+        return drawnWaveHeight(crest.aheadMetres, crest.heightMetres, this.settings.frontWidthMetres, this.settings.backWidthMetres);
     }
 
     updateLighting(cameraX, cameraY, cameraZ, lightElevationRadians, lightAngularRadiusRadians) {

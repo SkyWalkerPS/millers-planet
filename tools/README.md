@@ -66,7 +66,8 @@ Run: `npm run flight`. Flights (`FLIGHT=`):
 - `empty`: phase 2, the test scene;
 - `sea`: phase 4, eye-height sweeps over the sea with the wave parked on the horizon, a close look at the water, and a flick from the sky down to the sea;
 - `walk`: phase 5, player mode driven by keys and mouse: walking, orbiting while walking, Shift, stopping, C into the close and first-person views, a turn back toward the camera, looking up;
-- `wave`: phase 7, the first wave from T−22 to T+8: walking toward it, looking up and around, then the locked brace, the underwater view and the drain.
+- `wave`: phase 7, the first wave from T−22 to T+8: walking toward it, looking up and around, then the locked brace and the ride up the face, over the crest and down the back.
+- `aftermath`: phase 7, T+13 to T+43: the drain after the landing, the hand-over to the receding wave at T+17, turning round to watch it go, walking and running after it, then turning back to the next wave rising.
 
 A timeline can carry `setup` calls run before the flight and per-segment `systems` switches; the clock is always released after the setup. Settings: `RUNS` (3), `SECONDS` (30), `SETTLE_SECONDS` (3), `VERBOSE=1`, `PHASE`, `HUD=0` (hide the clocks), `MAX_SCALE` (a diagnostic cap on the controller's scale; the scale rules then fail by design). `SCALE` is refused, because the controller must be free. Exit code 0 = every run passed, 1 = a run failed, 2 = refused by preflight.
 
@@ -143,7 +144,7 @@ The floating origin. It renders the same view before and after a forced shift of
 
 ## wave-run (`wave-run.mjs`)
 
-Five waves in a row. For each wave it lets the clock run into the approach (T−59), brace (T−5), underwater (T+2), drain (T+8) and after (T+15), takes a screenshot of each, and checks the phase, the brace and input lock, the underwater view, the ship's state and its distance from the impact spot, plus a view of the ship from that spot. It samples the camera every 0.1 s through the brace-in and drain blends (the helmet must stay in view and at least 0.8 m away). It compares the CPU copy of the wave's crest noise with the GPU's, and checks the schedule at the worst and calmest crest offsets within ±20 km. Finally, a reload must reset everything. Run: `PHASE=7 node tools/wave-run.mjs` (`WAVES=1` for a quick run). Writes `evidence/<phase>-wave-run-*.png` and `-wave-run.json`; exit code 1 on any failure.
+Five waves in a row. For each wave it lets the clock run into the approach (T−59), brace (T−5), the ride over the crest (T+4.2), drain (T+13) and after (T+21), takes a screenshot of each, and checks the phase, the brace and input lock, that the astronaut is above 2,200 m at the crest with the camera out of the water and no crossing wipe, that he is at the landing point in the drain, the ship's state and its distance from the landing point, plus a view of the ship from there. It samples the camera every 0.1 s through the brace-in and drain blends (the helmet must stay in view and at least 0.8 m away). It compares the CPU copy of the wave's crest noise with the GPU's. At the worst and calmest crest offsets within ±20 km it checks that the wave hits on schedule, then steps every frame from T−0.5 to T+11.5: the camera must never be under water, the crossing wipe must never show, and the astronaut must rise above 2,200 m. It checks the receding wave from the hand-over at T+17 to T+250. Finally, a reload must reset everything. Run: `PHASE=7 node tools/wave-run.mjs` (`WAVES=1` for a quick run). Writes `evidence/<phase>-wave-run-*.png` and `-wave-run.json`; exit code 1 on any failure.
 
 ## mute-check (`mute-check.mjs`)
 

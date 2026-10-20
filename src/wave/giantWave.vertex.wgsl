@@ -19,7 +19,7 @@ fn main(input: VertexInputs) -> FragmentInputs {
     let local = waveLocalShape(absoluteLateral);
     let crestHeight = waveParameters.crestAlongHeightEnabled.y * local.x;
     let extent = select(waveBackWidth() + 40.0, waveFrontWidth() + 40.0, acrossParameter >= 0.0);
-    let x = acrossParameter * acrossParameter * acrossParameter * extent;
+    let x = acrossParameter * abs(acrossParameter) * extent;
     let crestAlong = waveParameters.crestAlongHeightEnabled.x - local.y;
     let along = crestAlong - x;
     let toward = waveToward();

@@ -57,20 +57,20 @@ export const FLIGHT_TIMELINES = {
   },
   wave: {
     phase: 7,
-    summary: 'phase 7: the first wave from T-22 to T+8 in player mode: walking toward the wall, looking up and around at the crest, then the locked brace with the scripted camera, the underwater pass and the drain',
+    summary: 'phase 7: the first wave from T-22 to T+8 in player mode: walking toward the wall, looking up and around at the crest, then the locked brace with the scripted camera and the ride up the face, over the crest and down the back',
     setup: [['debug.enterPlayerMode'], ['debug.setAstronautPosition', { x: 0, z: 0, yawDegrees: 0 }], ['skipTo', { waveIndex: 1, phase: 'impact', secondsIntoPhase: -25 }]],
     segments: [
       { untilSeconds: 6, label: 'walk toward the wall (W), about T-22 to T-16', input: { keys: ['KeyW'] } },
       { untilSeconds: 12, label: 'stop, look up and around at the crest, about T-16 to T-10', input: { keys: [], mouseCountsPerSecond: [260, -90] } },
-      { untilSeconds: 30, label: 'brace, underwater and drain (input locked from T-8)', input: { keys: [] } },
+      { untilSeconds: 30, label: 'brace and the ride over the crest (input locked from T-8)', input: { keys: [] } },
     ],
   },
   aftermath: {
     phase: 7,
-    summary: 'phase 7: the first wave after it passes, T+6 to T+36 in player mode: the drain and the hand-over to the receding wave, turning round to watch it go, walking and running after it, then turning back to the next wave rising',
-    setup: [['debug.enterPlayerMode'], ['debug.setAstronautPosition', { x: 0, z: 0, yawDegrees: 0 }], ['skipTo', { waveIndex: 1, phase: 'impact', secondsIntoPhase: 6 }]],
+    summary: 'phase 7: the first wave after it passes, T+13 to T+43 in player mode: the drain after the landing and the hand-over to the receding wave, turning round to watch it go, walking and running after it, then turning back to the next wave rising',
+    setup: [['debug.enterPlayerMode'], ['debug.setAstronautPosition', { x: 0, z: 0, yawDegrees: 0 }], ['skipTo', { waveIndex: 1, phase: 'impact', secondsIntoPhase: 10 }]],
     segments: [
-      { untilSeconds: 6, label: 'drain and stand up; control back and the receding wave takes over at T+11', input: { keys: [] } },
+      { untilSeconds: 6, label: 'drain and stand up after the landing; control back and the receding wave takes over at T+17', input: { keys: [] } },
       { untilSeconds: 10, label: 'turn the camera half a turn to the receding wave', input: { keys: [], mouseCountsPerSecond: [436, 0] } },
       { untilSeconds: 18, label: 'walk after the receding wave (W)', input: { keys: ['KeyW'] } },
       { untilSeconds: 22, label: 'Shift walk after it', input: { keys: ['ShiftLeft', 'KeyW'] } },

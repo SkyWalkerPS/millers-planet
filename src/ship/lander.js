@@ -49,6 +49,7 @@ export class Lander {
     constructor({ scene, frameUniforms, atmosphere, sceneProxies, waterLevelMetres = 0 }) {
         this.sceneProxies = sceneProxies;
         this.waterLevelMetres = waterLevelMetres;
+        this.ride = null;
         this.states = buildLanderStates();
         this.localBoxes = this.states.map((state) => landerProxyBoxes(state));
         this.material = new ShaderMaterial("lander", scene, { vertex: "lander", fragment: "lander" }, {
@@ -113,17 +114,43 @@ export class Lander {
     shiftOrigin(deltaX, deltaZ) {
         this.positionX -= deltaX;
         this.positionZ -= deltaZ;
+        if (this.ride) {
+            this.ride.x -= deltaX;
+            this.ride.z -= deltaZ;
+        }
         this.applyPlacement();
+    }
+
+    setRidePose(x, z, yawRadians, liftMetres, pitchRadians, rollRadians) {
+        this.ride = { x, z, yawRadians, liftMetres, pitchRadians, rollRadians };
+        this.applyPlacement();
+    }
+
+    clearRide() {
+        if (this.ride) {
+            this.ride = null;
+            this.applyPlacement();
+        }
+    }
+
+    get riding() {
+        return Boolean(this.ride);
     }
 
     applyPlacement() {
         const state = this.state;
         const definition = this.states[state];
         const tilt = definition.tilt ?? { pitchRadians: 0, rollRadians: 0 };
-        const transform = composeTransforms(
-            rotationTranslation(this.yawRadians, 0, 0, this.positionX, this.waterLevelMetres + definition.restingHeightMetres, this.positionZ),
-            rotationTranslation(0, tilt.pitchRadians, tilt.rollRadians, 0, 0, 0),
-        );
+        const ride = this.ride;
+        const transform = ride
+            ? composeTransforms(
+                rotationTranslation(ride.yawRadians, 0, 0, ride.x, this.waterLevelMetres + definition.restingHeightMetres + ride.liftMetres, ride.z),
+                rotationTranslation(0, tilt.pitchRadians + ride.pitchRadians, tilt.rollRadians + ride.rollRadians, 0, 0, 0),
+            )
+            : composeTransforms(
+                rotationTranslation(this.yawRadians, 0, 0, this.positionX, this.waterLevelMetres + definition.restingHeightMetres, this.positionZ),
+                rotationTranslation(0, tilt.pitchRadians, tilt.rollRadians, 0, 0, 0),
+            );
         this.worldTransform = transform;
         Matrix.FromValuesToRef(
             transform[0], transform[1], transform[2], 0,

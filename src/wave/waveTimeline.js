@@ -1,9 +1,11 @@
+import { waveRideSettings } from "./waveRide.js";
+
 export const waveSchedule = {
     firstImpactSeconds: 240,
     periodSeconds: 240,
     approachSeconds: 60,
     braceSeconds: 8,
-    underwaterSeconds: 5,
+    rideSeconds: waveRideSettings.rideSeconds,
     drainSeconds: 6,
 };
 
@@ -18,9 +20,9 @@ export const wavePath = {
 export const WAVE_PHASE_CALM = 0;
 export const WAVE_PHASE_APPROACH = 1;
 export const WAVE_PHASE_BRACE = 2;
-export const WAVE_PHASE_UNDERWATER = 3;
+export const WAVE_PHASE_RIDE = 3;
 export const WAVE_PHASE_DRAIN = 4;
-export const wavePhaseNames = ["calm", "approach", "brace", "underwater", "drain"];
+export const wavePhaseNames = ["calm", "approach", "brace", "ride", "drain"];
 export const wavePhaseLetters = ["", "a", "b", "c", "d"];
 
 export function impactSecondsOf(waveIndex, schedule = waveSchedule) {
@@ -28,7 +30,7 @@ export function impactSecondsOf(waveIndex, schedule = waveSchedule) {
 }
 
 export function settleSecondsOf(schedule = waveSchedule) {
-    return schedule.underwaterSeconds + schedule.drainSeconds;
+    return schedule.rideSeconds + schedule.drainSeconds;
 }
 
 export function activeWaveIndexAt(seconds, schedule = waveSchedule) {
@@ -91,13 +93,13 @@ export function waveStateAt(seconds, out = createWaveState(), schedule = waveSch
         phase = WAVE_PHASE_BRACE;
         start = impact - schedule.braceSeconds;
         end = impact;
-    } else if (secondsBeforeImpact > -schedule.underwaterSeconds) {
-        phase = WAVE_PHASE_UNDERWATER;
+    } else if (secondsBeforeImpact > -schedule.rideSeconds) {
+        phase = WAVE_PHASE_RIDE;
         start = impact;
-        end = impact + schedule.underwaterSeconds;
+        end = impact + schedule.rideSeconds;
     } else {
         phase = WAVE_PHASE_DRAIN;
-        start = impact + schedule.underwaterSeconds;
+        start = impact + schedule.rideSeconds;
         end = impact + settleSecondsOf(schedule);
     }
     out.index = index;
@@ -124,14 +126,14 @@ export function secondsForPhase(waveIndex, phaseName, secondsIntoPhase = 0, sche
         a: impact - schedule.approachSeconds,
         brace: impact - schedule.braceSeconds,
         b: impact - schedule.braceSeconds,
-        underwater: impact,
+        ride: impact,
         c: impact,
-        drain: impact + schedule.underwaterSeconds,
-        d: impact + schedule.underwaterSeconds,
+        drain: impact + schedule.rideSeconds,
+        d: impact + schedule.rideSeconds,
         impact,
     };
     if (!(phaseName in phaseStarts)) {
-        throw new Error(`Unknown wave phase "${phaseName}" (use calm, a/approach, b/brace, c/underwater, d/drain or impact)`);
+        throw new Error(`Unknown wave phase "${phaseName}" (use calm, a/approach, b/brace, c/ride, d/drain or impact)`);
     }
     return phaseStarts[phaseName] + secondsIntoPhase;
 }

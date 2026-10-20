@@ -31,6 +31,7 @@ uniform aspect: f32;
 uniform outputBlack: f32;
 uniform shadowColourBalance: vec3f;
 uniform shadowBalanceLumaRange: vec2f;
+uniform waterCrossingAmount: f32;
 
 const AGX_INSET = mat3x3f(
     0.842479062253094, 0.0423282422610123, 0.0423756549057051,
@@ -107,6 +108,38 @@ fn sharpened(uv: vec2f, centre: vec3f) -> vec3f {
     return clamp(centre * (1.0 + 4.0 * strength) - (left + right + below + above) * strength, lowest, highest);
 }
 
+fn crossingGradient(cell: vec2f) -> vec2f {
+    let wrapped = vec2u(vec2i(cell) & vec2i(1023));
+    var state = wrapped.x * 747796405u + wrapped.y * 2891336453u + 277803737u;
+    state = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    state = (state >> 22u) ^ state;
+    let angle = f32(state) * (6.2831853 / 4294967295.0);
+    return vec2f(cos(angle), sin(angle));
+}
+
+fn crossingGradientNoise(point: vec2f) -> f32 {
+    let cell = floor(point);
+    let local = fract(point);
+    let eased = local * local * local * (local * (local * 6.0 - 15.0) + 10.0);
+    let bottomLeft = dot(crossingGradient(cell), local);
+    let bottomRight = dot(crossingGradient(cell + vec2f(1.0, 0.0)), local - vec2f(1.0, 0.0));
+    let topLeft = dot(crossingGradient(cell + vec2f(0.0, 1.0)), local - vec2f(0.0, 1.0));
+    let topRight = dot(crossingGradient(cell + vec2f(1.0, 1.0)), local - vec2f(1.0, 1.0));
+    return 0.5 + 0.7 * mix(mix(bottomLeft, bottomRight, eased.x), mix(topLeft, topRight, eased.x), eased.y);
+}
+
+fn waterCrossingWipe(display: vec3f, uv: vec2f, amount: f32) -> vec3f {
+    let seconds = (uniforms.frameIndex % 36000.0) * (1.0 / 60.0);
+    let point = vec2f(uv.x * uniforms.aspect, uv.y);
+    var churn = crossingGradientNoise(point * 3.0 + vec2f(0.0, seconds * 2.5)) * 0.55;
+    churn += crossingGradientNoise(mat2x2f(0.8, -0.6, 0.6, 0.8) * point * 7.0 + vec2f(seconds * 1.3, seconds * 6.0)) * 0.3;
+    churn += crossingGradientNoise(mat2x2f(0.6, 0.8, -0.8, 0.6) * point * 17.0 + vec2f(-seconds * 2.0, seconds * 11.0)) * 0.15;
+    let foam = smoothstep(0.5, 0.78, churn + 0.12 * amount) * amount;
+    let wetTint = display * vec3f(0.62, 0.86, 0.88) + vec3f(0.05, 0.1, 0.11);
+    let tinted = mix(display, wetTint, amount * 0.6);
+    return mix(tinted, vec3f(0.82, 0.92, 0.91), foam * 0.75);
+}
+
 fn helmetRimFactor(uv: vec2f) -> f32 {
     let fromCentre = (uv - vec2f(0.5)) * vec2f(uniforms.aspect, 1.0);
     let normalisedRadius = length(fromCentre) / (0.5 * sqrt(uniforms.aspect * uniforms.aspect + 1.0));
@@ -132,6 +165,9 @@ fn displayColour(uv: vec2f, pixel: vec2f) -> vec3f {
     display *= mix(uniforms.shadowColourBalance, vec3f(1.0), smoothstep(uniforms.shadowBalanceLumaRange.x, uniforms.shadowBalanceLumaRange.y, displayLuma));
     let rim = helmetRimFactor(uv) * uniforms.helmetRimAmount;
     display = mix(display, display * 0.18 + vec3f(0.035, 0.04, 0.045), rim);
+    if (uniforms.waterCrossingAmount > 0.002) {
+        display = waterCrossingWipe(display, uv, uniforms.waterCrossingAmount);
+    }
     let cell = floor(pixel * 0.5);
     let grain = interleavedGradientNoise(cell + vec2f(uniforms.frameIndex * 7.31, uniforms.frameIndex * 3.17)) - 0.5;
     let dither = (interleavedGradientNoise(pixel + uniforms.frameIndex * 5.588238) + interleavedGradientNoise(pixel * 1.37 + 17.0 + uniforms.frameIndex * 3.1) - 1.0) / 255.0;

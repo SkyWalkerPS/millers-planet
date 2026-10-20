@@ -729,6 +729,29 @@ export class SuitFigure {
         }
     }
 
+    applyRigidTransform(rotation, pivotX, pivotY, pivotZ, offsetX, offsetY, offsetZ) {
+        const world = this.world;
+        for (let bone = 0; bone < BONE_COUNT; bone++) {
+            const base = bone * 16;
+            for (let column = 0; column < 3; column++) {
+                const at = base + column * 4;
+                const x = world[at];
+                const y = world[at + 1];
+                const z = world[at + 2];
+                world[at] = rotation[0] * x + rotation[1] * y + rotation[2] * z;
+                world[at + 1] = rotation[3] * x + rotation[4] * y + rotation[5] * z;
+                world[at + 2] = rotation[6] * x + rotation[7] * y + rotation[8] * z;
+            }
+            const x = world[base + 12] - pivotX;
+            const y = world[base + 13] - pivotY;
+            const z = world[base + 14] - pivotZ;
+            world[base + 12] = rotation[0] * x + rotation[1] * y + rotation[2] * z + pivotX + offsetX;
+            world[base + 13] = rotation[3] * x + rotation[4] * y + rotation[5] * z + pivotY + offsetY;
+            world[base + 14] = rotation[6] * x + rotation[7] * y + rotation[8] * z + pivotZ + offsetZ;
+            multiplyRigid(this.skin, base, world, base, this.inverseBind, base);
+        }
+    }
+
     eyePosition(out) {
         transformPoint(this.world, BONE_HEAD * 16, 0, suitProportions.eyeAboveHeadMetres, suitProportions.eyeForwardOfHeadMetres, out, 0);
         return out;

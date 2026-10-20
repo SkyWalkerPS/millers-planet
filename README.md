@@ -1,6 +1,6 @@
 # Miller's Planet
 
-A walkable, real-time recreation of the water planet from *Interstellar*, running in the browser on WebGPU. You wade as an astronaut through ankle-deep water that runs to the horizon, under a hazy overcast sky, with the black hole Gargantua hanging huge above the sea and a landed ship nearby. Every four minutes a wave more than two kilometres tall rolls in from Gargantua's direction, its thin crest glowing turquoise with the light behind it. You brace, it passes over, you spend a few seconds under water looking up through Snell's window, the water drains, and the walk goes on. Two clocks in the corner show time on the planet and on Earth, where it runs 61,362 times faster, and a box beside them counts down to the next wave. It is built with [Babylon.js](https://www.babylonjs.com/) 9.18 and hand-written WGSL shaders, and everything you see and hear is generated in code: there are no texture, model, animation or sound files.
+A walkable, real-time recreation of the water planet from *Interstellar*, running in the browser on WebGPU. You wade as an astronaut through ankle-deep water that runs to the horizon, under a hazy overcast sky, with the black hole Gargantua hanging huge above the sea and a landed ship nearby. Every four minutes a wave more than two kilometres tall rolls in from Gargantua's direction, its thin crest glowing turquoise with the light behind it. You brace, it sweeps you up its face and throws you over its crest more than two kilometres up, you slide down its back and splash down on the far side, and the walk goes on. Two clocks in the corner show time on the planet and on Earth, where it runs 61,362 times faster, and a box beside them counts down to the next wave. It is built with [Babylon.js](https://www.babylonjs.com/) 9.18 and hand-written WGSL shaders, and everything you see and hear is generated in code: there are no texture, model, animation or sound files.
 
 **Built on the work of Noniv (Maksymilian Dendura):** the character, sea, sky and post-processing techniques come from his [snowflow_demo](https://github.com/Noniv/snowflow_demo) and [web-ocean](https://github.com/Noniv/web-ocean) (both MIT). See [Credits](#credits).
 
@@ -10,7 +10,7 @@ A walkable, real-time recreation of the water planet from *Interstellar*, runnin
 
 ![Braced on one knee in front of the wall of water](evidence/final/wave-b-brace.jpg)
 
-![Under water: Gargantua seen through the rippling surface in Snell's window](evidence/final/wave-c-underwater.jpg)
+![Thrown over the crest: the astronaut 2.4 km up, with the sea far below](evidence/final/wave-c-crest.jpg)
 
 ![Half a minute later, looking back: the wave that passed, still 2.4 km tall, moving away](evidence/final/wave-receding.jpg)
 
@@ -23,7 +23,7 @@ npm install
 npm run dev
 ```
 
-For the production build, `npm run build` writes a static site to `dist/`: an `index.html`, a main script with four small chunks, and two licence files, 319.0 kB in total with brotli (403.5 kB gzip). Serve that folder with any static web server, for example `npm run preview`. Opening `dist/index.html` straight from the disk does not work, because Chrome blocks module scripts loaded from `file://`.
+For the production build, `npm run build` writes a static site to `dist/`: an `index.html`, a main script with four small chunks, and two licence files, 325.9 kB in total with brotli (412.2 kB gzip). Serve that folder with any static web server, for example `npm run preview`. Opening `dist/index.html` straight from the disk does not work, because Chrome blocks module scripts loaded from `file://`.
 
 The first click on the canvas captures the mouse and starts the sound.
 
@@ -89,15 +89,17 @@ The suit is built like the character in snowflow_demo: a skeleton (22 bones here
 
 ### The lander
 
-An original design in the shape language of the film's Ranger: faceted plates around a rounded 13-sided hull, a thin wedge with swept wings, twin canted tail fins and two round engine bells. It is white over a black heat-shield belly, with a charcoal band along the lower sides and the leading edges, a dark cockpit window band, and signal-orange markers on the wing and fin tips, the engine rims and a band across the top. It has five states: intact, beached and dented, broken with a wing torn off, scattered wreckage, and gone. After each wave it turns up 100 to 150 m downstream of where you were hit (a walk of a minute or so), more damaged, and it is gone after the fourth wave. The astronaut slides along it instead of walking through it, and the camera moves in so it never passes through the hull.
+An original design in the shape language of the film's Ranger: faceted plates around a rounded 13-sided hull, a thin wedge with swept wings, twin canted tail fins and two round engine bells. It is white over a black heat-shield belly, with a charcoal band along the lower sides and the leading edges, a dark cockpit window band, and signal-orange markers on the wing and fin tips, the engine rims and a band across the top. It has five states: intact, beached and dented, broken with a wing torn off, scattered wreckage, and gone. If it is within 400 m of you when a wave hits, the wave carries it over the crest too. After each wave it turns up 100 to 150 m from where you land (a walk of a minute or so), more damaged, and it is gone after the fourth wave. The astronaut slides along it instead of walking through it, and the camera moves in so it never passes through the hull.
 
 ### The wave
 
 The wave is a scripted shape, not a fluid simulation: a steep two-sided ridge 2.4 km tall (twice the film's, for a sense of scale) and about 1 km wide, with its height and crest line varying along a length that reaches across the whole horizon. Every wave travels at a steady 200 m/s for its whole life, so its distance is simply the speed times the time left before impact: when you load the page the first wave is 48 km away, a low hazy ridge rising out of the sea; a minute before impact it is 12 km away and looks like a mountain range; about 35 seconds out its crest is level with Gargantua, then it climbs over it and blots it out. The crest glows because the shader follows the view ray through the thin wedge of water at the top: the light of Gargantua and the sky behind it passes through with water's real absorption (red is lost first) plus forward scattering, so thin parts glow turquoise and the thick face stays dark. As the wall closes in, the light and the sky dim, and the sea, the suit, the visor and the lander all reflect the wall and its crest. After it passes it keeps going: turn round and you can watch it travel away at the same 200 m/s, still reflected in the sea. When the next wave hits, four minutes later, the old one is still on the horizon behind you, 48 km off and sinking back into the sea; it is gone 10 seconds after that. The next wave rises out of the sea 46 km ahead, 11 seconds after the last one hits.
 
-### Under water
+### Riding the wave
 
-For five seconds the camera is under the wave. Looking up, you see the sky through Snell's window: the surface above squeezes the whole sky into a circle within 48.6° of straight up, with exact Fresnel transmission and total internal reflection outside it, and Gargantua wobbles near the window's edge. Light shafts, bubbles and a low-pass muffle on the sound complete it. Then the water drains with streaks of whitewater, the astronaut stands up, and the suit stays wet for a minute and a half.
+When the wave reaches you, it knocks you off your feet and carries you up its face, the way a real wave lifts anything floating. You rise 2.4 km in about four seconds, tumbling slowly, and are thrown about 20 m above the crest, with the sea far below you. Then you slide down the back slope and splash down on the far side, about 940 m from where you were standing, 9.4 seconds after the hit. On the way up and again on the way down the water pulls you under for about half a second. Your path is a scripted curve: you always move forward over the ground (between 33 and 196 m/s), and you keep a set gap from the water measured straight out from the surface, so even on the near-vertical face you ride on the water, not inside it. Because the wave's mesh is made of straight segments that sit slightly above its true curve, the gap includes a margin computed from the size of the segment you are on.
+
+The camera never goes under water. It follows you from in front and below on the way up, swings out at the top to show you above the crest against the sky, whips over the crest, and follows you down the back from below; it is always kept 1.5 m clear of the water's surface, measured at the wave's position in the same frame. Up close the wave's face has small ripples and streaks of foam. They fade out as the water streams past the camera faster, from 6 pixels per frame until they are gone at 30, much as motion blur would hide them, so the fast parts of the ride show a dark wall rushing by instead of flickering noise. Then the water drains with streaks of whitewater, the astronaut stands up, and the suit stays wet for a minute and a half.
 
 ### Post-processing and resolution
 
@@ -109,7 +111,7 @@ Single-precision floats lose detail far from the origin, so once you are 1 km fr
 
 ### Clocks and sound
 
-The clocks show Miller time (hours, minutes, seconds) and Earth time (years, days, hours, minutes) at the film's ratio of 61,362. A second box to their right shows the number of the next wave and a minutes-and-seconds countdown to its impact; it reads "now" from the impact until the next wave appears. Time follows the real clock even while the tab is hidden: the browser stops drawing a hidden tab, and when you come back the clock catches up by the time you were away, so the waves keep their schedule (a wave may have passed while you were gone). The sound is generated with Web Audio from noise and simple oscillators: the sea, wading splashes, the rising roar of the wave, the muffle and bubbles under water.
+The clocks show Miller time (hours, minutes, seconds) and Earth time (years, days, hours, minutes) at the film's ratio of 61,362. A second box to their right shows the number of the next wave and a minutes-and-seconds countdown to its impact; it reads "now" from the impact until the next wave appears. Time follows the real clock even while the tab is hidden: the browser stops drawing a hidden tab, and when you come back the clock catches up by the time you were away, so the waves keep their schedule (a wave may have passed while you were gone). The sound is generated with Web Audio from noise and simple oscillators: the sea, wading splashes, the rising roar of the wave, and the splashes as it throws you around.
 
 ## Physics honesty
 
@@ -126,7 +128,7 @@ The clocks show Miller time (hours, minutes, seconds) and Earth time (years, day
 | The water's blue-green colour, the grey sky and the colour grade (cool shadows, untouched highlights) | Artistic: an earthier, ocean-like palette rather than the film's grey |
 | Footstep ripples, from the same dispersion | Physically based; their damping and shapes are artistic |
 | The seabed (sand, ripple marks, stones) | Artistic |
-| Snell's window, Fresnel and water absorption | Real optics; the bright light under a 2.4 km wave is artistic |
+| The ride over the wave: being carried 2.4 km up and down again in nine seconds and landing unhurt (a real body would be thrown clear of the crest and fall) | Artistic |
 | The giant wave: its existence over 20 cm of water, its 2.4 km height, shape, speed, four-minute spacing, drain, and how it rises from and sinks back into the sea far away | Artistic |
 | The distance haze on the giant wave, kept to 55% so it reads as a dark range from far away | Artistic |
 | The crest's turquoise glow | Physically motivated (absorption and forward scattering), but exaggerated |
@@ -144,11 +146,13 @@ This is a non-commercial fan tribute to *Interstellar*. It uses no frames, model
 Measured in headless Chrome 155 on a 16-inch MacBook Pro (M3 Pro with an 18-core GPU, macOS 15.7.3) at the panel's full 3456 × 2234, on mains power, from the production build, one change before the current one: the waves still waited on the horizon before their last minute, and came every five minutes. The always-moving waves have not been re-measured yet; a far wave covers less of the screen than the parked one did, so I expect them to cost the same or less, but that is not checked. There were six scripted 30-second flights, each run three times:
 - walking, orbiting the camera and switching views, with and without the clocks;
 - sweeping over the sea, including an instant flick from the sky down to the water;
-- the first wave, from 22 seconds before impact to 8 seconds after, through the brace, the underwater pass and the drain;
+- the first wave, from 22 seconds before impact to 8 seconds after, through the brace, the underwater pass that the ride over the crest has since replaced, and the drain;
 - the half minute after the wave passes: turning round to watch it go, then walking and running after it;
 - a stress test on a test scene that jumps from looking straight up to looking straight down.
 
 GPU time at full clock speed stayed at most 11.0 ms (p99) and 14.3 ms (maximum), against a 16.7 ms frame. The internal resolution stayed at 100% most of the time and dipped to 50% at worst, right after the instant camera jumps. In 17 of the first 18 runs, every frame arrived within 16.8 ms of the one before. The other, a sea flight, dropped to 30 frames per second for about two seconds after the flick down to the water, while the GPU clock ran up to 4.8 times slower than its fastest and a macOS photo-analysis process was busy; the work itself still fitted (12.4 ms at full clock). A repeat of the sea flight was clean in all three runs. Earlier builds also showed a rarer kind of hitch, a single late frame in very light views, about once in six to ten runs. I have not proven the cause of either.
+
+The ride over the crest has not been through these flights yet. Timed frame by frame without pacing, at 1728 × 1117 with the render scale pinned to 0.7, it costs the same as the brace and the landing around it: 2.3 to 3.3 ms median in each second of the ride, against 3.3 ms in the last second of the brace.
 
 Measured without corrections, the GPU time reads higher: 11 to 20 ms (p99), with single frames up to 33 ms right after the instant camera jumps. The cause is macOS slowing the GPU clock whenever a frame finishes early. I have not checked a real display or a screen recording.
 
@@ -162,6 +166,7 @@ Measured without corrections, the GPU time reads higher: 11 to 20 ms (p99), with
 - Shadows are soft stand-ins cast by simple shapes; nothing shadows itself.
 - When a hull or wing of the ship comes between the camera and the astronaut, the camera jumps in to stay clear of it.
 - The wave is a shaped effect, not a fluid simulation. Its back, which you see when you turn round to watch it go, is a smooth, plain slope with no spray or breaking water.
+- On the ride, most of the wave's face is close to vertical, so on the way up and down you mostly see a dark wall of water rushing past. Over the crest the camera turns round you in under a second and briefly looks along the ridge, which is as sharp as a blade.
 - The sea is calmer than the film's: its waves are a few centimetres high, so the broad, sparkling glint field and the chop of the film's water are missing.
 - Esc releasing the mouse was not tested automatically (headless Chrome cannot send it).
 

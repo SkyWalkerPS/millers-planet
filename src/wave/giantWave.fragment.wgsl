@@ -41,6 +41,16 @@ fn waveDetailHeight(faceCoordinates: vec2f, footprint: f32) -> f32 {
     return height;
 }
 
+fn waveCloseRippleHeight(surfaceCoordinates: vec2f) -> f32 {
+    return 0.22 * trigonometryFreeGradientNoiseTwo(surfaceCoordinates * vec2f(0.45, 0.3)) + 0.08 * trigonometryFreeGradientNoiseTwo(surfaceCoordinates * vec2f(1.6, 1.1) + vec2f(5.3, 2.9));
+}
+
+fn waveCloseFoam(surfaceCoordinates: vec2f) -> f32 {
+    let broad = trigonometryFreeGradientNoiseTwo(surfaceCoordinates * vec2f(0.16, 0.035));
+    let fine = trigonometryFreeGradientNoiseTwo(surfaceCoordinates * vec2f(0.7, 0.16) + vec2f(2.7, 8.1));
+    return smoothstep(0.35, 0.75, broad * 0.6 + fine * 0.4);
+}
+
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {
     let world = input.vWorldPosition;
@@ -74,6 +84,19 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let bitangent = normalize(cross(normal, tangent));
     let detailStrength = 1.6 * smoothstep(0.0, 60.0, world.y);
     normal = normalize(normal - (tangent * (detailAcross - detail) + bitangent * (detailUp - detail)) / step * detailStrength);
+    let currentClip = frame.viewProjection * vec4f(world, 1.0);
+    let previousClip = frame.previousViewProjection * vec4f(input.vPreviousWorldPosition, 1.0);
+    let screenTravelPixels = length(screenMotionFromClipPositions(currentClip, previousClip) * frame.jitterNdcAndInternalSize.zw);
+    let closeAmount = (1.0 - smoothstep(0.08, 0.5, footprint)) * (1.0 - smoothstep(6.0, 30.0, screenTravelPixels));
+    let steepness = abs(slope) / sqrt(1.0 + slope * slope);
+    let surfaceCoordinates = vec2f(lateral, mix(x, world.y, steepness) + flowTime * 14.0);
+    if (closeAmount > 0.0) {
+        let rippleStep = 0.12;
+        let ripple = waveCloseRippleHeight(surfaceCoordinates);
+        let rippleAcross = waveCloseRippleHeight(surfaceCoordinates + vec2f(rippleStep, 0.0));
+        let rippleUp = waveCloseRippleHeight(surfaceCoordinates + vec2f(0.0, rippleStep));
+        normal = normalize(normal - (tangent * (rippleAcross - ripple) + bitangent * (rippleUp - ripple)) / rippleStep * closeAmount);
+    }
 
     let lightDirection = atmosphere.lightDirectionAndCameraAltitude.xyz;
     let illuminance = atmosphere.lightIlluminanceAndMarineScaleHeight.xyz;
@@ -91,6 +114,9 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let streaks = smoothstep(0.25, 0.7, streakField) * smoothstep(0.0, 0.5, max(-slope, 0.0)) * (1.0 - smoothstep(40.0, 200.0, footprint));
     let foamColour = skyIrradiance * (0.42 / ATMOSPHERE_PI);
     radiance = mix(radiance, foamColour, streaks * 0.16);
+    if (closeAmount > 0.0) {
+        radiance = mix(radiance, foamColour, waveCloseFoam(surfaceCoordinates) * closeAmount * 0.5);
+    }
 
     if (x >= -2.0) {
         let rayDirection = -view;
@@ -104,7 +130,8 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
         let inscatter = keyIlluminance * forward * (WAVE_CREST_SCATTERING * aeration * min(chord, 400.0)) * transmittance;
         let glow = (behind * transmittance + inscatter) * (1.0 - fresnel) * waveParameters.glowAndRaggedness.x;
         let seeThrough = dot(transmittance, vec3f(0.25, 0.4, 0.35));
-        radiance = radiance * (1.0 - seeThrough) + glow;
+        let glowFromAfar = smoothstep(40.0, 220.0, viewDistance);
+        radiance = radiance * (1.0 - seeThrough * glowFromAfar) + glow * glowFromAfar;
     }
 
     let mistHeight = (10.0 + 16.0 * motion) + (8.0 + 14.0 * motion) * (trigonometryFreeGradientNoiseTwo(vec2f(lateral * 0.008, flowTime * 0.12)) * 0.5 + 0.5);
@@ -112,8 +139,6 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     let mistColour = skyIrradiance * (0.62 / ATMOSPHERE_PI);
     radiance = mix(radiance, mistColour, mist * 0.85);
 
-    let currentClip = frame.viewProjection * vec4f(world, 1.0);
-    let previousClip = frame.previousViewProjection * vec4f(input.vPreviousWorldPosition, 1.0);
     radiance = mix(radiance, applyAerialPerspective(radiance, currentClip, viewDistance), WAVE_HAZE_KEPT);
     fragmentOutputs.fragData0 = vec4f(radiance, 1.0);
     fragmentOutputs.fragData1 = packMotionDepthAndSurface(currentClip, previousClip, SURFACE_CODE_WAVE);

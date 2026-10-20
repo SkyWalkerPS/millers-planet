@@ -1,4 +1,5 @@
-import { WAVE_PHASE_BRACE, WAVE_PHASE_DRAIN, WAVE_PHASE_UNDERWATER } from "../wave/waveTimeline.js";
+import { WAVE_PHASE_BRACE, WAVE_PHASE_DRAIN, WAVE_PHASE_RIDE } from "../wave/waveTimeline.js";
+import { waveRideSettings } from "../wave/waveRide.js";
 
 const degrees = Math.PI / 180;
 
@@ -10,14 +11,30 @@ export const waveCameraSettings = {
     lookUpMinimumRadians: 12 * degrees,
     lookUpMaximumRadians: 24 * degrees,
     lookUpOfCrest: 0.45,
-    orbitStartSeconds: 4,
-    orbitEndSeconds: 6.5,
+    orbitStartSeconds: 2.5,
+    orbitEndSeconds: 4.5,
     frontAngleRadians: 0.48,
     frontDistanceMetres: 1.6,
     frontHeightAboveHelmetMetres: 0.05,
-    underwaterBehindMetres: 2.1,
-    underwaterHeightMetres: 0.25,
-    underwaterPitchRadians: 33 * degrees,
+    returnStartSeconds: 5.7,
+    returnEndSeconds: 7.6,
+    climbBearingRadians: 0.6,
+    climbDistanceMetres: 9,
+    climbHeightMetres: -3,
+    crestBearingRadians: 0.3,
+    crestDistanceMetres: 14,
+    crestHeightMetres: -3,
+    descentBearingRadians: 2.54,
+    descentDistanceMetres: 9,
+    descentHeightMetres: -3,
+    landedDistanceMetres: 6,
+    landedHeightAboveWaterMetres: 1.2,
+    toCrestFromCrossingSeconds: [-1.4, -0.3],
+    toDescentFromCrossingSeconds: [-0.2, 0.9],
+    overCrestLiftMetres: 30,
+    landingFromSplashdownSeconds: [-0.2, 1.2],
+    rideClearOfWaterMetres: 1.5,
+    lookAboveBodyMetres: 0.3,
     drainBlendStartSeconds: 0.5,
     drainBlendEndSeconds: 5.5,
     braceInSeconds: 0.9,
@@ -32,7 +49,7 @@ export function waveCameraWeight(state, settings = waveCameraSettings) {
     if (state.phase === WAVE_PHASE_BRACE) {
         return smoothstep(0, settings.blendInSeconds, state.secondsIntoPhase);
     }
-    if (state.phase === WAVE_PHASE_UNDERWATER) {
+    if (state.phase === WAVE_PHASE_RIDE) {
         return 1;
     }
     if (state.phase === WAVE_PHASE_DRAIN) {
@@ -45,7 +62,7 @@ export function braceAmountFor(state, settings = waveCameraSettings) {
     if (state.phase === WAVE_PHASE_BRACE) {
         return Math.min(1, state.secondsIntoPhase / settings.braceInSeconds);
     }
-    if (state.phase === WAVE_PHASE_UNDERWATER) {
+    if (state.phase === WAVE_PHASE_RIDE) {
         return 1;
     }
     if (state.phase === WAVE_PHASE_DRAIN) {
@@ -65,7 +82,7 @@ export function braceAmountFor(state, settings = waveCameraSettings) {
 }
 
 export function inputLockedFor(state) {
-    return state.phase === WAVE_PHASE_BRACE || state.phase === WAVE_PHASE_UNDERWATER || state.phase === WAVE_PHASE_DRAIN;
+    return state.phase === WAVE_PHASE_BRACE || state.phase === WAVE_PHASE_RIDE || state.phase === WAVE_PHASE_DRAIN;
 }
 
 function lookAngles(directionX, directionY, directionZ, out) {
@@ -74,18 +91,58 @@ function lookAngles(directionX, directionY, directionZ, out) {
     return out;
 }
 
-export function waveCameraPose(state, astronaut, helmet, crestElevationRadians, waterLevelMetres, out, settings = waveCameraSettings) {
+function lookAt(out, targetX, targetY, targetZ) {
+    const angles = lookAngles(targetX - out.position[0], targetY - out.position[1], targetZ - out.position[2], out.scratchAngles);
+    out.yawRadians = angles[0];
+    out.pitchRadians = angles[1];
+    return out;
+}
+
+function blendThroughKeys(first, second, third, toSecond, toThird) {
+    return first + (second - first) * toSecond + (third - second) * toThird;
+}
+
+export function rideCameraPose(secondsSinceImpact, ride, out, settings = waveCameraSettings, rideSettings = waveRideSettings) {
+    const s = secondsSinceImpact;
+    const [bodyX, bodyY, bodyZ] = ride.body;
+    const [travelX, travelZ] = ride.travel;
+    const crossing = rideSettings.crestCrossingSeconds;
+    const splashdown = rideSettings.splashdownSeconds;
+    const toCrest = smoothstep(crossing + settings.toCrestFromCrossingSeconds[0], crossing + settings.toCrestFromCrossingSeconds[1], s);
+    const toDescent = smoothstep(crossing + settings.toDescentFromCrossingSeconds[0], crossing + settings.toDescentFromCrossingSeconds[1], s);
+    const landing = smoothstep(splashdown + settings.landingFromSplashdownSeconds[0], splashdown + settings.landingFromSplashdownSeconds[1], s);
+    const bearing = blendThroughKeys(settings.climbBearingRadians, settings.crestBearingRadians, settings.descentBearingRadians, toCrest, toDescent);
+    let distance = blendThroughKeys(settings.climbDistanceMetres, settings.crestDistanceMetres, settings.descentDistanceMetres, toCrest, toDescent);
+    const overCrest = Math.sin(Math.PI * toDescent);
+    const height = blendThroughKeys(settings.climbHeightMetres, settings.crestHeightMetres, settings.descentHeightMetres, toCrest, toDescent) + settings.overCrestLiftMetres * overCrest * overCrest;
+    distance += (settings.landedDistanceMetres - distance) * landing;
+    const cosine = Math.cos(bearing);
+    const sine = Math.sin(bearing);
+    const awayX = travelX * cosine - travelZ * sine;
+    const awayZ = travelX * sine + travelZ * cosine;
+    out.position[0] = bodyX + awayX * distance;
+    out.position[2] = bodyZ + awayZ * distance;
+    out.position[1] = bodyY + height;
+    const landedHeight = ride.waterLevelMetres + settings.landedHeightAboveWaterMetres;
+    out.position[1] += (landedHeight - out.position[1]) * landing;
+    out.position[1] = Math.max(out.position[1], ride.surfaceAt(out.position[0], out.position[2]) + settings.rideClearOfWaterMetres);
+    return lookAt(out, bodyX, bodyY + settings.lookAboveBodyMetres, bodyZ);
+}
+
+export function landedRideSeconds(settings = waveCameraSettings, rideSettings = waveRideSettings) {
+    return rideSettings.splashdownSeconds + settings.landingFromSplashdownSeconds[1];
+}
+
+export function waveCameraPose(state, astronaut, helmet, crestElevationRadians, waterLevelMetres, out, ride = null, settings = waveCameraSettings) {
+    if (state.phase === WAVE_PHASE_RIDE && ride) {
+        return rideCameraPose(-state.secondsBeforeImpact, ride, out, settings);
+    }
+    if (state.phase === WAVE_PHASE_DRAIN && ride) {
+        return rideCameraPose(landedRideSeconds(settings), ride, out, settings);
+    }
     const yaw = astronaut.yawRadians;
     const forwardX = Math.sin(yaw);
     const forwardZ = Math.cos(yaw);
-    if (state.phase === WAVE_PHASE_UNDERWATER || state.phase === WAVE_PHASE_DRAIN) {
-        out.position[0] = astronaut.x - forwardX * settings.underwaterBehindMetres;
-        out.position[1] = astronaut.groundY + settings.underwaterHeightMetres + 0.6;
-        out.position[2] = astronaut.z - forwardZ * settings.underwaterBehindMetres;
-        out.yawRadians = yaw;
-        out.pitchRadians = settings.underwaterPitchRadians;
-        return out;
-    }
     const seconds = state.phase === WAVE_PHASE_BRACE ? state.secondsIntoPhase : 0;
     const orbit = smoothstep(settings.orbitStartSeconds, settings.orbitEndSeconds, seconds);
     const angle = Math.PI + (settings.frontAngleRadians - Math.PI) * orbit;
@@ -117,11 +174,23 @@ export function waveCameraPose(state, astronaut, helmet, crestElevationRadians, 
     );
     out.yawRadians = angles[0];
     out.pitchRadians = angles[1];
+    const returnToRide = smoothstep(settings.returnStartSeconds, settings.returnEndSeconds, seconds);
+    if (returnToRide > 0 && ride) {
+        const rideStart = rideCameraPose(0, ride, out.rideScratch, settings);
+        blendCameraPoseAroundPivot(out, rideStart, helmet[0], helmet[2], returnToRide, out.blendScratch);
+    }
     return out;
 }
 
 export function createWaveCameraPose() {
-    return { position: new Float64Array(3), yawRadians: 0, pitchRadians: 0, scratchAngles: new Float64Array(2) };
+    return {
+        position: new Float64Array(3),
+        yawRadians: 0,
+        pitchRadians: 0,
+        scratchAngles: new Float64Array(2),
+        rideScratch: { position: new Float64Array(3), yawRadians: 0, pitchRadians: 0, scratchAngles: new Float64Array(2) },
+        blendScratch: { from: {}, to: {} },
+    };
 }
 
 const pivotTooCloseForBearingMetres = 0.3;

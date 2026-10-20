@@ -3,19 +3,23 @@ import path from 'node:path';
 import { evidenceDirectory, openMillersPlanet, waitForMillersPlanetReady } from './target.mjs';
 import { pageExpression } from './page-results.mjs';
 import { waveLocalShapeAt } from '../src/wave/waveLocalShape.js';
-import { impactSecondsOf } from '../src/wave/waveTimeline.js';
+import { impactSecondsOf, waveSchedule } from '../src/wave/waveTimeline.js';
+import { waveRideSettings } from '../src/wave/waveRide.js';
 
 const phase = Number(process.env.PHASE || 7);
 const waveCount = Number(process.env.WAVES || 5);
+const settleSeconds = waveSchedule.rideSeconds + waveSchedule.drainSeconds;
+const crestSeconds = waveRideSettings.crestCrossingSeconds;
 const shotPhases = [
   { name: 'a', waveSeconds: -59, label: 'approach (T-59)' },
   { name: 'b', waveSeconds: -5, label: 'brace (T-5)' },
-  { name: 'c', waveSeconds: 2, label: 'underwater (T+2)' },
-  { name: 'd', waveSeconds: 8, label: 'drain (T+8)' },
-  { name: 'after', waveSeconds: 15, label: 'after (T+15)' },
+  { name: 'c', waveSeconds: crestSeconds, label: `ride over the crest (T+${crestSeconds})` },
+  { name: 'd', waveSeconds: waveSchedule.rideSeconds + 2, label: `drain (T+${waveSchedule.rideSeconds + 2})` },
+  { name: 'after', waveSeconds: settleSeconds + 4, label: `after (T+${settleSeconds + 4})` },
 ];
 const leadSeconds = 2.5;
-const cameraBlendWindows = [[-8.6, -6.0], [4.4, 11.0]];
+const cameraBlendWindows = [[-8.6, -6.0], [waveSchedule.rideSeconds - 0.1, settleSeconds]];
+const crestLiftMinimumMetres = 2200;
 const cameraBlendStepFrames = 6;
 const cameraBlendMinimumHelmetDistanceMetres = 0.8;
 const parityLateralCount = 1024;
@@ -23,7 +27,7 @@ const parityLateralRangeMetres = 20000;
 const parityCrestOffsetToleranceMetres = 0.05;
 const parityHeightScaleTolerance = 1e-4;
 const lateralSearchRangeMetres = 20000;
-const recedingSampleSeconds = [10.95, 11.05, 30, 60, 100, 150, 235, 240, 250];
+const recedingSampleSeconds = [settleSeconds - 0.05, settleSeconds + 0.05, 30, 60, 100, 150, 235, 240, 250];
 const passingSpeedMetresPerSecond = 200;
 const fullWaveHeightMetres = 2400;
 const problems = [];
@@ -47,8 +51,13 @@ try {
         api.freezeTime(targetSeconds);
         await api.renderFrames(50);
         const stats = api.stats();
+        const app = api.debug.application;
+        const anchor = stats.wave.anchor;
         return {
           requested: targetSeconds,
+          ride: stats.wave.ride,
+          crossing: stats.wave.waterCrossingAmount,
+          landing: anchor && anchor.index === ${waveIndex} ? app.rideLandingPoint(anchor.x, anchor.z) : null,
           clock: stats.clocks.millerSeconds,
           wave: { index: stats.wave.index, phase: stats.wave.phase, secondsIntoPhase: stats.wave.secondsIntoPhase, underwater: stats.wave.cameraUnderwater, impactPosition: stats.wave.impactPosition, impactWaveIndex: stats.wave.impactWaveIndex, keyLightVisibility: stats.wave.keyLightVisibility },
           ship: stats.ship,
@@ -61,6 +70,30 @@ try {
       await page.screenshot(path.join(evidenceDirectory(), fileName));
       waveRecord.phases.push({ phase: shotPhase.name, label: shotPhase.label, file: fileName, ...state });
       if (state.gpuErrors.length) problems.push(`wave ${waveIndex} ${shotPhase.name}: GPU errors ${state.gpuErrors.join(' | ')}`);
+    }
+    const afterRecord = waveRecord.phases[waveRecord.phases.length - 1];
+    const expectedState = Math.min(waveIndex, 4);
+    if (afterRecord.ship.state !== expectedState) problems.push(`after wave ${waveIndex} the ship state is ${afterRecord.ship.state} (expected ${expectedState})`);
+    if ((expectedState === 4) === afterRecord.ship.visible) problems.push(`after wave ${waveIndex} the ship visible flag is ${afterRecord.ship.visible}`);
+    if (afterRecord.wave.impactWaveIndex !== waveIndex) problems.push(`wave ${waveIndex}: the recorded impact belongs to wave ${afterRecord.wave.impactWaveIndex}`);
+    const drainRecord = waveRecord.phases.find((record) => record.phase === 'd');
+    if (expectedState < 4 && drainRecord.landing) {
+      const [landingX, landingZ] = drainRecord.landing;
+      const distance = Math.hypot(afterRecord.ship.position[0] - landingX, afterRecord.ship.position[1] - landingZ);
+      waveRecord.shipDistanceFromLandingMetres = distance;
+      if (distance < 100 || distance > 150) problems.push(`after wave ${waveIndex} the ship is ${distance.toFixed(1)} m from the astronaut's landing point (expected 100-150)`);
+      const view = await page.evaluate(pageExpression(`(async () => {
+        const api = window.millersPlanet;
+        const [impactX, impactZ] = ${JSON.stringify(drainRecord.landing)};
+        const ship = api.stats().ship;
+        const bearing = Math.atan2(ship.position[0] - impactX, ship.position[1] - impactZ) * 180 / Math.PI;
+        api.debug.setAstronautPosition({ x: impactX, z: impactZ, yawDegrees: bearing + 25, cameraYawDegrees: bearing });
+        await api.renderFrames(60);
+        return { bearingDegrees: bearing, astronaut: api.stats().astronaut.position };
+      })()`));
+      const viewFile = `${phase}-ship-${waveIndex}-from-landing.png`;
+      await page.screenshot(path.join(evidenceDirectory(), viewFile));
+      waveRecord.fromLanding = { file: viewFile, ...view };
     }
     const blendSamples = await page.evaluate(pageExpression(`(async () => {
       const api = window.millersPlanet;
@@ -87,38 +120,17 @@ try {
     if (outOfView.length) problems.push(`wave ${waveIndex} camera blend: the helmet is out of view in ${outOfView.length} of ${scriptedSamples.length} scripted samples, first at ${describeSample(outOfView[0])}`);
     if (tooClose.length) problems.push(`wave ${waveIndex} camera blend: the camera comes within ${cameraBlendMinimumHelmetDistanceMetres} m of the helmet in ${tooClose.length} samples, closest at ${describeSample(closest)}`);
     console.log(`wave ${waveIndex} camera blend: ${scriptedSamples.length} scripted samples, helmet out of view in ${outOfView.length}, closest ${closest ? `${closest.helmet.distanceMetres.toFixed(2)} m at T${closest.waveSeconds >= 0 ? '+' : ''}${closest.waveSeconds.toFixed(1)} s` : 'n/a'}`);
-    const afterRecord = waveRecord.phases[waveRecord.phases.length - 1];
-    const expectedState = Math.min(waveIndex, 4);
-    if (afterRecord.ship.state !== expectedState) problems.push(`after wave ${waveIndex} the ship state is ${afterRecord.ship.state} (expected ${expectedState})`);
-    if ((expectedState === 4) === afterRecord.ship.visible) problems.push(`after wave ${waveIndex} the ship visible flag is ${afterRecord.ship.visible}`);
-    if (afterRecord.wave.impactWaveIndex !== waveIndex) problems.push(`wave ${waveIndex}: the recorded impact belongs to wave ${afterRecord.wave.impactWaveIndex}`);
-    if (expectedState < 4 && afterRecord.wave.impactPosition) {
-      const [impactX, impactZ] = afterRecord.wave.impactPosition;
-      const distance = Math.hypot(afterRecord.ship.position[0] - impactX, afterRecord.ship.position[1] - impactZ);
-      waveRecord.shipDistanceFromImpactMetres = distance;
-      if (distance < 100 || distance > 150) problems.push(`after wave ${waveIndex} the ship is ${distance.toFixed(1)} m from the impact position (expected 100-150)`);
-      const view = await page.evaluate(pageExpression(`(async () => {
-        const api = window.millersPlanet;
-        const [impactX, impactZ] = ${JSON.stringify(afterRecord.wave.impactPosition)};
-        const ship = api.stats().ship;
-        const bearing = Math.atan2(ship.position[0] - impactX, ship.position[1] - impactZ) * 180 / Math.PI;
-        api.debug.setAstronautPosition({ x: impactX, z: impactZ, yawDegrees: bearing + 25, cameraYawDegrees: bearing });
-        await api.renderFrames(60);
-        return { bearingDegrees: bearing, astronaut: api.stats().astronaut.position };
-      })()`));
-      const viewFile = `${phase}-ship-${waveIndex}-from-impact.png`;
-      await page.screenshot(path.join(evidenceDirectory(), viewFile));
-      waveRecord.fromImpact = { file: viewFile, ...view };
-    }
     for (const record of waveRecord.phases) {
-      const expectations = { a: ['approach'], b: ['brace'], c: ['underwater'], d: ['drain'], after: ['calm'] };
+      const expectations = { a: ['approach'], b: ['brace'], c: ['ride'], d: ['drain'], after: ['calm'] };
       if (!expectations[record.phase].includes(record.wave.phase)) problems.push(`wave ${waveIndex} ${record.phase}: the page is in phase ${record.wave.phase}`);
       if (record.phase === 'b' && (!record.astronaut.braced || !record.astronaut.inputLocked)) problems.push(`wave ${waveIndex} brace: braced ${record.astronaut.braced}, input locked ${record.astronaut.inputLocked}`);
-      if (record.phase === 'c' && !record.wave.underwater) problems.push(`wave ${waveIndex} underwater: the camera is not under water`);
+      if (record.phase === 'c' && (!record.ride.active || record.ride.liftMetres < crestLiftMinimumMetres)) problems.push(`wave ${waveIndex} ride: at the crest the astronaut is ${record.ride.active ? `${record.ride.liftMetres.toFixed(0)} m up` : 'not riding'} (expected above ${crestLiftMinimumMetres} m)`);
+      if (record.phase === 'c' && (record.wave.underwater || record.crossing > 0.01)) problems.push(`wave ${waveIndex} ride: at the crest the camera is ${record.wave.underwater ? 'under water' : `showing the water-crossing wipe (${record.crossing.toFixed(2)})`}`);
+      if (record.phase === 'd' && (!record.landing || Math.hypot(record.astronaut.position[0] - record.landing[0], record.astronaut.position[2] - record.landing[1]) > 1)) problems.push(`wave ${waveIndex} drain: the astronaut is at ${record.astronaut.position.map((value) => value.toFixed(1)).join(', ')}, not at the landing point ${record.landing ? record.landing.map((value) => value.toFixed(1)).join(', ') : 'unknown'}`);
       if (record.phase === 'after' && (record.astronaut.inputLocked || record.camera.scriptedWeight > 0)) problems.push(`wave ${waveIndex} after: input locked ${record.astronaut.inputLocked}, scripted camera ${record.camera.scriptedWeight}`);
     }
     report.waves.push(waveRecord);
-    console.log(`wave ${waveIndex}: phases ${waveRecord.phases.map((record) => `${record.phase}=${record.wave.phase}`).join(', ')}; ship after: ${afterRecord.ship.stateName}${waveRecord.shipDistanceFromImpactMetres ? `, ${waveRecord.shipDistanceFromImpactMetres.toFixed(1)} m from the impact` : ''}`);
+    console.log(`wave ${waveIndex}: phases ${waveRecord.phases.map((record) => `${record.phase}=${record.wave.phase}`).join(', ')}; lift at the crest ${waveRecord.phases[2].ride.liftMetres.toFixed(0)} m; ship after: ${afterRecord.ship.stateName}${waveRecord.shipDistanceFromLandingMetres ? `, ${waveRecord.shipDistanceFromLandingMetres.toFixed(1)} m from the landing point` : ''}`);
   }
   const parityLaterals = Array.from({ length: parityLateralCount }, (_, index) => -parityLateralRangeMetres + (index * 2 * parityLateralRangeMetres) / (parityLateralCount - 1));
   const parity = await page.evaluate(pageExpression(`window.millersPlanet.debug.waveShapeParity(${JSON.stringify(parityLaterals)})`), { timeoutMs: 60000 });
@@ -150,35 +162,37 @@ try {
       api.freezeTime(impact);
       await api.renderFrames(2);
       const atImpact = api.stats().wave.astronautCrest;
-      const findSwitch = async (fromSeconds, toSeconds, wantUnderwater) => {
-        api.freezeTime(null);
-        api.skipTo({ waveIndex: ${scheduleWaveIndex}, phase: 'impact', secondsIntoPhase: fromSeconds });
+      api.freezeTime(null);
+      api.skipTo({ waveIndex: ${scheduleWaveIndex}, phase: 'impact', secondsIntoPhase: -0.5 });
+      await api.renderFrames(1);
+      const ride = { frames: 0, underwaterFrames: 0, firstUnderwaterSeconds: null, largestCrossing: 0, largestLiftMetres: 0, largestLiftAtSeconds: null };
+      for (let frame = 0; frame < Math.round((${waveSchedule.rideSeconds} + 1) * 60); frame++) {
         await api.renderFrames(1);
-        for (let frame = 0; frame < Math.round((toSeconds - fromSeconds) * 60); frame++) {
-          await api.renderFrames(1);
-          const stats = api.stats();
-          if (stats.wave.cameraUnderwater === wantUnderwater) return stats.clocks.millerSeconds - impact;
+        const stats = api.stats();
+        const waveSeconds = stats.clocks.millerSeconds - impact;
+        ride.frames++;
+        if (stats.wave.cameraUnderwater) {
+          ride.underwaterFrames++;
+          if (ride.firstUnderwaterSeconds === null) ride.firstUnderwaterSeconds = waveSeconds;
         }
-        return null;
-      };
-      const underwaterFrom = await findSwitch(-0.6, 0.8, true);
-      const underwaterUntil = await findSwitch(4.3, 5.8, false);
-      return { atImpact, underwaterFrom, underwaterUntil };
+        ride.largestCrossing = Math.max(ride.largestCrossing, stats.wave.waterCrossingAmount);
+        if (stats.wave.ride.active && stats.wave.ride.liftMetres > ride.largestLiftMetres) {
+          ride.largestLiftMetres = stats.wave.ride.liftMetres;
+          ride.largestLiftAtSeconds = waveSeconds;
+        }
+      }
+      return { atImpact, ride };
     })()`), { timeoutMs: 180000 });
     scheduleChecks.push({ lateralMetres: place.lateral, expectedCrestOffsetMetres: place.offset, ...result });
   }
   report.lateralSchedule = scheduleChecks;
   const frontWidthMetres = 350;
   for (const check of scheduleChecks) {
-    console.log(`lateral ${check.lateralMetres} m (crest offset ${check.expectedCrestOffsetMetres.toFixed(1)} m): at T the local crest is ${check.atImpact.aheadMetres.toFixed(1)} m ahead of the astronaut (toe at the astronaut = ${frontWidthMetres} m), under water from T${check.underwaterFrom === null ? ' never' : `+${check.underwaterFrom.toFixed(3)} s`} until T${check.underwaterUntil === null ? ' never' : `+${check.underwaterUntil.toFixed(3)} s`}`);
+    console.log(`lateral ${check.lateralMetres} m (crest offset ${check.expectedCrestOffsetMetres.toFixed(1)} m): at T the local crest is ${check.atImpact.aheadMetres.toFixed(1)} m ahead of the astronaut (toe at the astronaut = ${frontWidthMetres} m); over ${check.ride.frames} ride frames the camera was under water in ${check.ride.underwaterFrames}, the largest wipe was ${check.ride.largestCrossing.toFixed(3)}, the highest lift ${check.ride.largestLiftMetres.toFixed(0)} m at T+${check.ride.largestLiftAtSeconds?.toFixed(2)} s`);
     if (Math.abs(check.atImpact.aheadMetres - frontWidthMetres) > 1) problems.push(`lateral ${check.lateralMetres} m: at T the local crest is ${check.atImpact.aheadMetres.toFixed(1)} m ahead of the astronaut, not ${frontWidthMetres} m, so the wave hits ${((frontWidthMetres - check.atImpact.aheadMetres) / 200).toFixed(2)} s off the schedule`);
-    if (check.underwaterFrom === null || check.underwaterUntil === null) problems.push(`lateral ${check.lateralMetres} m: the camera never switched ${check.underwaterFrom === null ? 'under' : 'out of the'} water`);
-  }
-  const [calmest, worst] = scheduleChecks;
-  if (calmest.underwaterFrom !== null && worst.underwaterFrom !== null && calmest.underwaterUntil !== null && worst.underwaterUntil !== null) {
-    const startDifference = Math.abs(worst.underwaterFrom - calmest.underwaterFrom);
-    const endDifference = Math.abs(worst.underwaterUntil - calmest.underwaterUntil);
-    if (startDifference > 0.05 || endDifference > 0.05) problems.push(`the underwater view starts ${startDifference.toFixed(3)} s and ends ${endDifference.toFixed(3)} s apart between laterals ${calmest.lateralMetres} m and ${worst.lateralMetres} m (limit 0.05 s)`);
+    if (check.ride.underwaterFrames > 0) problems.push(`lateral ${check.lateralMetres} m: the ride camera went under water in ${check.ride.underwaterFrames} frames, first at T+${check.ride.firstUnderwaterSeconds.toFixed(3)} s`);
+    if (check.ride.largestCrossing > 0.01) problems.push(`lateral ${check.lateralMetres} m: the water-crossing wipe showed during the ride (largest ${check.ride.largestCrossing.toFixed(3)})`);
+    if (check.ride.largestLiftMetres < crestLiftMinimumMetres) problems.push(`lateral ${check.lateralMetres} m: the astronaut only rose ${check.ride.largestLiftMetres.toFixed(0)} m (expected above ${crestLiftMinimumMetres} m)`);
   }
   const recedingSamples = await page.evaluate(pageExpression(`(async () => {
     const api = window.millersPlanet;
@@ -199,10 +213,10 @@ try {
   })()`), { timeoutMs: 120000 });
   report.recedingWave = recedingSamples;
   const sampleAt = (seconds) => recedingSamples.find((sample) => sample.secondsAfterImpact === seconds);
-  const beforeHandOver = sampleAt(10.95);
-  const afterHandOver = sampleAt(11.05);
-  if (beforeHandOver.receding.visible) problems.push('receding wave: visible before the passed wave hands over (T+10.95)');
-  if (!afterHandOver.receding.visible) problems.push('receding wave: not visible after the hand-over (T+11.05)');
+  const beforeHandOver = sampleAt(settleSeconds - 0.05);
+  const afterHandOver = sampleAt(settleSeconds + 0.05);
+  if (beforeHandOver.receding.visible) problems.push(`receding wave: visible before the passed wave hands over (T+${settleSeconds - 0.05})`);
+  if (!afterHandOver.receding.visible) problems.push(`receding wave: not visible after the hand-over (T+${settleSeconds + 0.05})`);
   const handOverJump = afterHandOver.receding.crestAheadMetres - (beforeHandOver.incoming.crestAheadMetres - passingSpeedMetresPerSecond * 0.1);
   if (Math.abs(handOverJump) > 2) problems.push(`receding wave: the crest jumps ${handOverJump.toFixed(1)} m at the hand-over`);
   if (afterHandOver.incoming.heightMetres > 5) problems.push(`the next wave starts ${afterHandOver.incoming.heightMetres.toFixed(0)} m tall instead of rising from the sea`);

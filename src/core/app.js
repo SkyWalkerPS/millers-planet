@@ -28,7 +28,8 @@ import { SeaSurface } from "../sea/seaSurface.js";
 import { RippleField } from "../sea/rippleField.js";
 import { GiantWave } from "../wave/giantWave.js";
 import { UnderwaterView } from "../wave/underwaterView.js";
-import { WAVE_PHASE_BRACE, createWaveState, impactSecondsOf, secondsForPhase, waveSchedule, waveStateAt, wavePhaseLetters } from "../wave/waveTimeline.js";
+import { WAVE_PHASE_BRACE, WAVE_PHASE_DRAIN, WAVE_PHASE_RIDE, createWaveState, impactSecondsOf, secondsForPhase, waveSchedule, waveStateAt, wavePhaseLetters, wavePath } from "../wave/waveTimeline.js";
+import { astronautRider, rideLandingTravelMetres, rideLiftMetres, rideTravelMetres, rideTumble, riderIsUnderwater, rotationAboutAxes, shipRider, waveRideSettings } from "../wave/waveRide.js";
 import { blendCameraPoseAroundPivot, braceAmountFor, createCameraBlendScratch, createWaveCameraPose, inputLockedFor, waveCameraPose, waveCameraWeight } from "../camera/waveCamera.js";
 import { SceneProxies } from "../world/sceneProxies.js";
 import { Lander, SHIP_STATE_INTACT, relocationForWave, shipStateNames } from "../ship/lander.js";
@@ -203,7 +204,7 @@ export class MillersPlanetApp {
         this.wakeStamps = [0, 1].map(() => ({ x: 0, z: 0, radius: 0.06, elongation: 1, forwardX: 0, forwardZ: 1, heightChange: 0, foam: 0, ringWeight: 0.3 }));
         this.lastWakeCrossings = new Float64Array(4).fill(Number.NaN);
         this.lander = new Lander({ scene: this.scene, frameUniforms: this.frameUniforms, atmosphere: this.atmosphere, sceneProxies: this.sceneProxies, waterLevelMetres: this.seaSurface.settings.waterLevelMetres });
-        this.suitController.obstacleBoxes = () => (this.systemsEnabled?.ship && this.lander.state !== 4 ? this.lander.worldBoxes : null);
+        this.suitController.obstacleBoxes = () => (this.systemsEnabled?.ship && this.lander.state !== 4 && !this.lander.riding ? this.lander.worldBoxes : null);
         this.cameraRig.obstacleBoxes = this.suitController.obstacleBoxes;
         this.placeOpeningShip();
         this.placeAstronaut(0, 0, openingYawRadians);
@@ -221,6 +222,22 @@ export class MillersPlanetApp {
         this.waveCameraPoseScratch = createWaveCameraPose();
         this.cameraBlendScratch = createCameraBlendScratch();
         this.waveCameraWeight = 0;
+        this.waveAnchor = null;
+        this.shipRide = null;
+        this.rideLandedIndex = 0;
+        this.rideRotation = new Float64Array(9);
+        this.rideState = { active: false, secondsSinceImpact: 0, travelMetres: 0, liftMetres: 0, tumbleDegrees: 0, underwater: false };
+        this.rideSplashSecondsPassed = -1;
+        this.crossingWipeReachMetres = 1;
+        this.rideSplashMoments = [
+            [0.05, 0.9],
+            ...astronautRider.dunks.flatMap((dunk) => [[dunk.atSeconds - 0.5 * dunk.halfSeconds, 0.75], [dunk.atSeconds + 0.5 * dunk.halfSeconds, 0.6]]),
+            [waveRideSettings.splashdownSeconds, 1.0],
+        ];
+        this.cameraWasUnderwater = false;
+        this.previousCameraDepthMetres = Number.NaN;
+        this.lastWaterCrossingSeconds = -Infinity;
+        this.waterCrossingAmount = 0;
         this.audioSplashes = [];
         this.shipWavesApplied = 0;
         this.lastImpact = null;
@@ -1101,6 +1118,15 @@ export class MillersPlanetApp {
         this.suitRenderer.discardPreviousSkin();
         this.suitRenderer.writeSkin(this.suitFigure.skin);
         this.lastWakeCrossings.fill(Number.NaN);
+        this.forgetWaveRide();
+    }
+
+    forgetWaveRide() {
+        this.waveAnchor = null;
+        this.shipRide = null;
+        this.rideLandedIndex = 0;
+        this.rideSplashSecondsPassed = -1;
+        this.lander.clearRide();
     }
 
     preparePlayerShot(definition) {
@@ -1156,6 +1182,10 @@ export class MillersPlanetApp {
         }
         if (choreography) {
             this.updateWave(definition.timeSeconds);
+            this.landAfterRide(choreography);
+            this.applyWaveRide(choreography);
+            this.suitRenderer.discardPreviousSkin();
+            this.suitRenderer.writeSkin(this.suitFigure.skin);
             this.applyWaveCamera(choreography);
         }
         if (player.cropAroundHelmet) {
@@ -1410,7 +1440,20 @@ export class MillersPlanetApp {
         const crest = wave.localCrestAt(helmet[0], helmet[2], wave.scratchCrest);
         const crestElevation = Math.atan2(crest.heightMetres - helmet[1], Math.max(crest.aheadMetres, 1));
         const astronaut = { x: controller.positionX, z: controller.positionZ, groundY: controller.positionY, yawRadians: controller.facingYaw };
-        const pose = waveCameraPose(state, astronaut, helmet, crestElevation, this.seaSurface.settings.waterLevelMetres, this.waveCameraPoseScratch);
+        const waterLevel = this.seaSurface.settings.waterLevelMetres;
+        const anchor = this.waveAnchor;
+        let rideContext = null;
+        if (anchor && anchor.index === state.index) {
+            const crestAlongNow = wave.crestAlongFor(anchor.x, anchor.z, state.frontDistanceMetres);
+            const heightNow = wavePath.heightMetres * Math.min(1, Math.max(0, state.heightFraction));
+            rideContext = {
+                body: [world[BONE_PELVIS * 16 + 12], world[BONE_PELVIS * 16 + 13], world[BONE_PELVIS * 16 + 14]],
+                travel: this.rideTravelDirection(),
+                surfaceAt: (x, z) => Math.max(waterLevel, wave.waterHeightAt(x, z, crestAlongNow, heightNow)),
+                waterLevelMetres: waterLevel,
+            };
+        }
+        const pose = waveCameraPose(state, astronaut, helmet, crestElevation, waterLevel, this.waveCameraPoseScratch, rideContext);
         const target = blendCameraPoseAroundPivot(this.cameraPose, pose, helmet[0], helmet[2], weight, this.cameraBlendScratch);
         const helmetDistance = Math.hypot(helmet[0] - target.position[0], helmet[1] - target.position[1], helmet[2] - target.position[2]);
         this.postChain.settings.focusDistanceMetres += (helmetDistance - this.postChain.settings.focusDistanceMetres) * weight;
@@ -1420,17 +1463,21 @@ export class MillersPlanetApp {
 
     updatePlayer(deltaSeconds) {
         const choreography = waveStateAt(this.clock.timeSeconds, this.choreographyState);
+        this.landAfterRide(choreography);
         this.applyWaveChoreographyToAstronaut(choreography, deltaSeconds);
         const player = this.gatherPlayerInput(deltaSeconds);
         const inputYaw = this.scriptedMoveOverride ? this.scriptedMoveOverride.inputYawRadians : this.cameraRig.yawRadians;
         this.suitController.update(deltaSeconds, player.moveRight, player.moveForward, player.shift, inputYaw);
         this.suitFigure.update(deltaSeconds, this.suitController);
+        this.applyWaveRide(choreography);
         const forwardDominantInput = player.moveForward > 0.5 && Math.abs(player.moveRight) < 0.5;
         this.cameraRig.update(deltaSeconds, this.suitController, this.suitFigure, player.mouseX, player.mouseY, this.seaSurface.settings.waterLevelMetres, forwardDominantInput);
         this.shiftWorldOriginIfFar();
         this.applyRigToCameraPose();
         this.applyWaveCamera(choreography);
-        this.collectWaterContacts((stamp) => this.rippleField.queueStamp(stamp));
+        if (!this.rideState.active) {
+            this.collectWaterContacts((stamp) => this.rippleField.queueStamp(stamp));
+        }
     }
 
     applyRigToCameraPose() {
@@ -1599,6 +1646,14 @@ export class MillersPlanetApp {
         this.worldOriginShiftCount++;
         this.suitController.shiftOrigin(deltaX, deltaZ);
         this.suitFigure.shiftOrigin(deltaX, deltaZ);
+        if (this.waveAnchor) {
+            this.waveAnchor.x -= deltaX;
+            this.waveAnchor.z -= deltaZ;
+        }
+        if (this.shipRide) {
+            this.shipRide.fromX -= deltaX;
+            this.shipRide.fromZ -= deltaZ;
+        }
         this.suitRenderer.shiftOrigin(deltaX, deltaZ);
         this.cameraRig.shiftOrigin(deltaX, deltaZ);
         this.cameraFrame.shiftOrigin(deltaX, deltaZ);
@@ -1643,10 +1698,19 @@ export class MillersPlanetApp {
         const wave = this.giantWave;
         const camera = this.cameraFrame.position;
         const followAstronaut = this.systemsEnabled.astronaut;
-        const referenceX = followAstronaut ? this.suitController.positionX : camera.x;
-        const referenceZ = followAstronaut ? this.suitController.positionZ : camera.z;
+        let referenceX = followAstronaut ? this.suitController.positionX : camera.x;
+        let referenceZ = followAstronaut ? this.suitController.positionZ : camera.z;
+        const inChoreography = state.phase === WAVE_PHASE_BRACE || state.phase === WAVE_PHASE_RIDE || state.phase === WAVE_PHASE_DRAIN;
+        if (inChoreography && this.systemsEnabled.wave) {
+            if (!this.waveAnchor || this.waveAnchor.index !== state.index) {
+                this.waveAnchor = { index: state.index, x: referenceX, z: referenceZ };
+                this.startShipRide(state.index);
+            }
+            referenceX = this.waveAnchor.x;
+            referenceZ = this.waveAnchor.z;
+        }
         wave.setHeightFraction(state.heightFraction);
-        wave.place(wave.along(referenceX, referenceZ) + state.frontDistanceMetres + wave.settings.frontWidthMetres + wave.crestOffsetAt(referenceX, referenceZ), wave.lateral(camera.x, camera.z), wave.along(camera.x, camera.z));
+        wave.place(wave.crestAlongFor(referenceX, referenceZ, state.frontDistanceMetres), wave.lateral(camera.x, camera.z), wave.along(camera.x, camera.z));
         const secondsMoving = waveSchedule.periodSeconds - state.secondsBeforeImpact;
         wave.motionAmount = Math.min(1, Math.max(0, secondsMoving / 2));
         wave.flowSeconds = Math.max(0, secondsMoving);
@@ -1668,11 +1732,136 @@ export class MillersPlanetApp {
                 } else {
                     const impactX = this.lastImpact && this.lastImpact.waveIndex === completedWaves ? this.lastImpact.x : referenceX;
                     const impactZ = this.lastImpact && this.lastImpact.waveIndex === completedWaves ? this.lastImpact.z : referenceZ;
-                    this.relocateShipForWave(completedWaves, impactX, impactZ);
+                    const landing = this.rideLandingPoint(impactX, impactZ);
+                    this.relocateShipForWave(completedWaves, landing[0], landing[1]);
                 }
                 this.shipWavesApplied = completedWaves;
             }
         }
+        this.updateShipRide(state, seconds);
+    }
+
+    rideTravelDirection() {
+        return [-this.giantWave.toward[0], -this.giantWave.toward[1]];
+    }
+
+    rideGeometryAt(x, z) {
+        const wave = this.giantWave;
+        const crest = wave.localCrestAt(x, z, wave.scratchCrest);
+        return {
+            crestHeightMetres: wavePath.heightMetres * wave.localShape.heightScale,
+            frontWidthMetres: wave.settings.frontWidthMetres,
+            backWidthMetres: wave.settings.backWidthMetres,
+            speedMetresPerSecond: wavePath.speedMetresPerSecond,
+            crestOffsetMetres: crest.crestOffsetMetres,
+        };
+    }
+
+    rideLandingPoint(impactX, impactZ) {
+        const [travelX, travelZ] = this.rideTravelDirection();
+        const travel = rideLandingTravelMetres(this.rideGeometryAt(impactX, impactZ));
+        return [impactX + travelX * travel, impactZ + travelZ * travel];
+    }
+
+    startShipRide(waveIndex) {
+        const lander = this.lander;
+        const anchor = this.waveAnchor;
+        this.shipRide = null;
+        if (!this.systemsEnabled.ship || !lander.visible || lander.state === 4 || waveIndex < 1) {
+            return;
+        }
+        if (Math.hypot(lander.positionX - anchor.x, lander.positionZ - anchor.z) > waveRideSettings.shipRideReachMetres) {
+            return;
+        }
+        const towardX = this.giantWave.toward[0];
+        const towardZ = this.giantWave.toward[1];
+        const aheadOfAnchor = (lander.positionX - anchor.x) * towardX + (lander.positionZ - anchor.z) * towardZ;
+        this.shipRide = {
+            index: waveIndex,
+            fromX: lander.positionX,
+            fromZ: lander.positionZ,
+            fromYaw: lander.yawRadians,
+            delaySeconds: aheadOfAnchor / wavePath.speedMetresPerSecond,
+        };
+    }
+
+    updateShipRide(state, seconds) {
+        const ride = this.shipRide;
+        const lander = this.lander;
+        if (!ride || !this.systemsEnabled.wave) {
+            lander.clearRide();
+            return;
+        }
+        const shipSeconds = seconds - impactSecondsOf(ride.index) + ride.delaySeconds;
+        if (shipSeconds <= 0 || shipSeconds >= waveRideSettings.rideSeconds) {
+            lander.clearRide();
+            return;
+        }
+        const settings = waveRideSettings;
+        const anchor = this.waveAnchor;
+        const geometry = this.rideGeometryAt(anchor.x, anchor.z);
+        const [travelX, travelZ] = this.rideTravelDirection();
+        const travel = rideTravelMetres(shipSeconds, geometry);
+        const landingTravel = rideLandingTravelMetres(geometry);
+        const landing = this.rideLandingPoint(anchor.x, anchor.z);
+        const [windX, windZ] = this.seaSimulation.settings.windTravelDirection;
+        const destination = relocationForWave(ride.index, landing[0], landing[1], windX, windZ);
+        const drift = easeInOut(shipSeconds / settings.splashdownSeconds);
+        const x = ride.fromX + travelX * travel + (destination.x - (ride.fromX + travelX * landingTravel)) * drift;
+        const z = ride.fromZ + travelZ * travel + (destination.z - (ride.fromZ + travelZ * landingTravel)) * drift;
+        const wave = this.giantWave;
+        const crest = wave.localCrestAt(x, z, wave.scratchCrest);
+        const shipGeometry = { ...geometry, crestHeightMetres: crest.heightMetres };
+        const lift = rideLiftMetres(shipSeconds, shipGeometry, shipRider, crest.aheadMetres);
+        const fraction = Math.min(1, shipSeconds / settings.splashdownSeconds);
+        const tumble = settings.shipTumbleRadians * Math.sin(Math.PI * fraction);
+        const yawChange = Math.atan2(Math.sin(destination.yawRadians - ride.fromYaw), Math.cos(destination.yawRadians - ride.fromYaw));
+        const yaw = ride.fromYaw + yawChange * drift + 1.1 * Math.sin(Math.PI * fraction);
+        lander.setRidePose(x, z, yaw, lift, tumble * Math.sin(2.5 * Math.PI * fraction), 0.8 * tumble * Math.cos(1.5 * Math.PI * fraction));
+    }
+
+    landAfterRide(state) {
+        const anchor = this.waveAnchor;
+        if (!this.systemsEnabled.wave || !anchor || anchor.index !== state.index || state.phase !== WAVE_PHASE_DRAIN || this.rideLandedIndex === state.index) {
+            return;
+        }
+        const landing = this.rideLandingPoint(anchor.x, anchor.z);
+        const controller = this.suitController;
+        controller.teleport(landing[0], landing[1], controller.facingYaw);
+        this.suitFigure.teleport(controller);
+        this.cameraRig.snapTo(controller, this.suitFigure, controller.facingYaw, null);
+        this.rideLandedIndex = state.index;
+    }
+
+    applyWaveRide(state) {
+        const anchor = this.waveAnchor;
+        const ride = this.rideState;
+        ride.active = false;
+        if (!this.systemsEnabled.wave || !anchor || anchor.index !== state.index || state.phase !== WAVE_PHASE_RIDE) {
+            this.rideSplashSecondsPassed = -1;
+            return;
+        }
+        const seconds = -state.secondsBeforeImpact;
+        const geometry = this.rideGeometryAt(anchor.x, anchor.z);
+        const [travelX, travelZ] = this.rideTravelDirection();
+        const travel = rideTravelMetres(seconds, geometry);
+        const lift = rideLiftMetres(seconds, geometry, astronautRider);
+        const tumble = rideTumble(seconds);
+        rotationAboutAxes(travelX, travelZ, tumble.pitchRadians, tumble.rollRadians, this.rideRotation);
+        const pelvis = this.suitFigure.pelvisPosition;
+        this.suitFigure.applyRigidTransform(this.rideRotation, pelvis[0], pelvis[1], pelvis[2], travelX * travel, lift, travelZ * travel);
+        ride.active = true;
+        ride.secondsSinceImpact = seconds;
+        ride.travelMetres = travel;
+        ride.liftMetres = lift;
+        ride.tumbleDegrees = (tumble.pitchRadians * 180) / Math.PI;
+        ride.underwater = riderIsUnderwater(seconds, astronautRider);
+        for (const [moment, strength] of this.rideSplashMoments) {
+            if (this.rideSplashSecondsPassed < moment && seconds >= moment && seconds - moment < 0.5) {
+                this.audioSplashes.push(strength);
+            }
+        }
+        this.rideSplashSecondsPassed = seconds;
     }
 
     updateRecedingWave(state, seconds, referenceX, referenceZ, camera) {
@@ -1702,10 +1891,10 @@ export class MillersPlanetApp {
         if (this.systemsEnabled.wave) {
             if (state.secondsBeforeImpact > 0) {
                 approach = Math.min(1, Math.max(0, (schedule.approachSeconds - state.secondsBeforeImpact) / schedule.approachSeconds));
-            } else if (state.secondsBeforeImpact > -schedule.underwaterSeconds) {
+            } else if (state.secondsBeforeImpact > -schedule.rideSeconds) {
                 approach = 1;
             } else {
-                approach = Math.max(0, 1 - (-state.secondsBeforeImpact - schedule.underwaterSeconds) / schedule.drainSeconds);
+                approach = Math.max(0, 1 - (-state.secondsBeforeImpact - schedule.rideSeconds) / schedule.drainSeconds);
             }
         }
         this.audioSystem.update({ approach, underwater: this.underwaterView.active, splashes: this.audioSplashes });
@@ -1715,7 +1904,7 @@ export class MillersPlanetApp {
     updateAftermath(state, seconds) {
         const sinceImpact = state.secondsBeforeImpact <= 0 ? -state.secondsBeforeImpact : state.index > 1 ? seconds - impactSecondsOf(state.index - 1) : Infinity;
         const active = this.systemsEnabled.wave;
-        const drainStart = waveSchedule.underwaterSeconds;
+        const drainStart = waveSchedule.rideSeconds;
         const settle = drainStart + waveSchedule.drainSeconds;
         const smooth = (low, high, value) => {
             const x = Math.min(1, Math.max(0, (value - low) / (high - low)));
@@ -1726,8 +1915,9 @@ export class MillersPlanetApp {
         let flow = 0;
         let wetness = 0;
         if (active && sinceImpact >= 0) {
-            level = sinceImpact < drainStart ? 0.6 : 0.6 * (1 - smooth(0, 4.5, sinceImpact - drainStart));
-            foam = sinceImpact < drainStart ? 1 : 1 - smooth(0, 30, sinceImpact - drainStart);
+            const wakeArrives = smooth(waveRideSettings.splashdownSeconds - 1.2, waveRideSettings.splashdownSeconds + 0.2, sinceImpact);
+            level = sinceImpact < drainStart ? 0.6 * wakeArrives : 0.6 * (1 - smooth(0, 4.5, sinceImpact - drainStart));
+            foam = sinceImpact < drainStart ? wakeArrives : 1 - smooth(0, 30, sinceImpact - drainStart);
             flow = 6 * Math.max(0, sinceImpact - drainStart);
             wetness = sinceImpact < settle ? 1 : 1 - smooth(0, 90, sinceImpact - settle);
         }
@@ -1742,6 +1932,7 @@ export class MillersPlanetApp {
     updateUnderwater(camera) {
         const wave = this.giantWave;
         const underwater = this.forceUnderwaterForWarmUp || (this.systemsEnabled.wave && wave.enabled && camera.y < wave.waterHeightAt(camera.x, camera.z) - 0.05);
+        this.updateWaterCrossing(camera, underwater);
         if (this.underwaterView.active && !underwater && !this.forceUnderwaterForWarmUp) {
             this.resolution.requestPreemptiveCut(0.2, "underwater exit");
         }
@@ -1766,12 +1957,42 @@ export class MillersPlanetApp {
         wave.lighting.hazeFactor = 1;
     }
 
+    updateWaterCrossing(camera, underwater) {
+        const wave = this.giantWave;
+        const now = this.frameIndex / 60;
+        const step = this.clock.lastDeltaSeconds;
+        const surface = this.systemsEnabled.wave && wave.enabled ? wave.waterHeightAt(camera.x, camera.z) : -Infinity;
+        const depth = Number.isFinite(surface) ? surface - camera.y : Number.NaN;
+        if (underwater !== this.cameraWasUnderwater && !this.forceUnderwaterForWarmUp) {
+            this.lastWaterCrossingSeconds = now;
+            if (this.rideState.active) {
+                this.audioSplashes.push(0.85);
+            }
+        }
+        this.cameraWasUnderwater = underwater;
+        let approaching = 0;
+        if (step > 0 && Number.isFinite(depth) && Number.isFinite(this.previousCameraDepthMetres)) {
+            const rate = (depth - this.previousCameraDepthMetres) / step;
+            if (depth * rate < 0 && Math.abs(rate) > 1e-3 && Math.abs(depth) < this.crossingWipeReachMetres) {
+                approaching = 1 - easeInOut(Math.min(1, -depth / rate / 0.18));
+            }
+        }
+        this.previousCameraDepthMetres = depth;
+        const sinceCrossing = now - this.lastWaterCrossingSeconds;
+        const fadingOut = sinceCrossing >= 0 ? 1 - easeInOut(Math.min(1, Math.max(0, (sinceCrossing - 0.05) / 0.35))) : 0;
+        this.waterCrossingAmount = this.systemsEnabled.wave ? Math.max(approaching, fadingOut) : 0;
+        this.postChain.settings.waterCrossingAmount = this.waterCrossingAmount;
+    }
+
     skipTo({ waveIndex = 1, phase = "a", secondsIntoPhase = 0 } = {}) {
         const seconds = secondsForPhase(waveIndex, phase, secondsIntoPhase);
         this.clock.jumpTo(seconds);
         this.giantWave.discardHistory();
         this.recedingWave.discardHistory();
         this.invalidateTemporalHistory();
+        this.lastWaterCrossingSeconds = -Infinity;
+        this.previousCameraDepthMetres = Number.NaN;
+        this.forgetWaveRide();
         return { timeSeconds: seconds, ...this.waveStats() };
     }
 
@@ -1786,10 +2007,14 @@ export class MillersPlanetApp {
             phaseSeconds: state.phaseEndSeconds - state.phaseStartSeconds,
             secondsBeforeImpact: state.secondsBeforeImpact,
             impactSeconds: state.impactSeconds,
-            schedule: { firstImpact: waveSchedule.firstImpactSeconds, period: waveSchedule.periodSeconds, mountainsLead: waveSchedule.approachSeconds, braceLead: waveSchedule.braceSeconds, underwater: waveSchedule.underwaterSeconds, drain: waveSchedule.drainSeconds },
+            schedule: { firstImpact: waveSchedule.firstImpactSeconds, period: waveSchedule.periodSeconds, mountainsLead: waveSchedule.approachSeconds, braceLead: waveSchedule.braceSeconds, ride: waveSchedule.rideSeconds, drain: waveSchedule.drainSeconds },
             frontDistanceMetres: state.frontDistanceMetres,
             visible: this.giantWave.enabled,
             crestAlongMetres: this.giantWave.crestAlong,
+            ride: { ...this.rideState },
+            waterCrossingAmount: this.waterCrossingAmount,
+            anchor: this.waveAnchor ? { index: this.waveAnchor.index, x: this.waveAnchor.x, z: this.waveAnchor.z } : null,
+            shipRiding: this.lander.riding,
             heightMetres: this.giantWave.heightMetres,
             receding: { visible: this.recedingWave.enabled, crestAlongMetres: this.recedingWave.crestAlong, heightMetres: this.recedingWave.heightMetres },
             crestDistanceMetres: lighting.distanceToCrestMetres,

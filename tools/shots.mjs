@@ -16,14 +16,14 @@ const shipStateShots = [0, 1, 2, 3, 4].map((state) => ({
   description: `Ship damage state ${state}`,
 }));
 
-const shipFromImpactShots = [1, 2, 3].map((waveCount) => ({
-  name: `ship-${waveCount}-from-impact`,
+const shipFromLandingShots = [1, 2, 3].map((waveCount) => ({
+  name: `ship-${waveCount}-from-landing`,
   phase: 7,
   kind: 'byTool',
   madeBy: 'tools/wave-run.mjs',
-  waveSecondsFromImpact: 15,
+  waveSecondsFromImpact: 21,
   expectedCrops: ['ship'],
-  description: `The relocated ship after wave ${waveCount}, seen from the impact position through the haze`,
+  description: `The relocated ship after wave ${waveCount}, seen through the haze from where the astronaut landed`,
 }));
 
 export const SHOTS = [
@@ -62,15 +62,19 @@ export const SHOTS = [
   { name: 'wave-a-move', phase: 7, kind: 'still', waveSecondsFromImpact: -59, description: 'T-59, to compare with T-60 for motion' },
   { name: 'wave-a-near', phase: 7, kind: 'still', waveSecondsFromImpact: -30, description: 'T-30' },
   { name: 'crest-backlit', phase: 7, kind: 'still', waveSecondsFromImpact: -35, expectedCrops: ['crest', 'face'], benchmarkByDefault: true, description: 'T-35, crest level with Gargantua: backlit crest' },
-  { name: 'visor-front-wave', phase: 7, kind: 'still', waveSecondsFromImpact: -2, expectedCrops: ['visor'], benchmarkByDefault: true, description: 'Scripted brace camera at T-2; visor crop shows the wall and crest' },
-  { name: 'wave-b-brace', phase: 7, kind: 'still', waveSecondsFromImpact: -5, benchmarkByDefault: true, description: 'T-5, braced on one knee, camera looking up at the wall' },
-  { name: 'wave-c-underwater', phase: 7, kind: 'still', waveSecondsFromImpact: 2, benchmarkByDefault: true, description: 'T+2 underwater: Snell window with Gargantua' },
-  { name: 'wave-d-drain', phase: 7, kind: 'still', waveSecondsFromImpact: 8, description: 'T+8, the water draining' },
-  { name: 'wave-after', phase: 7, kind: 'still', waveSecondsFromImpact: 15, description: 'T+15, control back' },
+  { name: 'visor-front-wave', phase: 7, kind: 'still', waveSecondsFromImpact: -3, expectedCrops: ['visor'], benchmarkByDefault: true, description: 'Scripted brace camera at T-3; visor crop shows the wall and crest' },
+  { name: 'wave-ride-swept', phase: 7, kind: 'still', waveSecondsFromImpact: 0.8, description: 'T+0.8, swept off his feet and carried up the face' },
+  { name: 'wave-ride-up', phase: 7, kind: 'still', waveSecondsFromImpact: 2.6, description: 'T+2.6, about 1.5 km up the face' },
+  { name: 'wave-b-brace', phase: 7, kind: 'still', waveSecondsFromImpact: -6, benchmarkByDefault: true, description: 'T-6, braced on one knee, camera looking up at the wall' },
+  { name: 'wave-c-crest', phase: 7, kind: 'still', waveSecondsFromImpact: 4.2, benchmarkByDefault: true, description: 'T+4.2, thrown above the crest with the sea 2.4 km below' },
+  { name: 'wave-ride-back', phase: 7, kind: 'still', waveSecondsFromImpact: 6.2, description: 'T+6.2, sliding down the back slope' },
+  { name: 'wave-ride-splash', phase: 7, kind: 'still', waveSecondsFromImpact: 9.4, description: 'T+9.4, splashdown on the far side' },
+  { name: 'wave-d-drain', phase: 7, kind: 'still', waveSecondsFromImpact: 12, description: 'T+12, the water draining as he gets up' },
+  { name: 'wave-after', phase: 7, kind: 'still', waveSecondsFromImpact: 18, description: 'T+18, control back' },
   { name: 'wave-receding', phase: 7, kind: 'still', waveSecondsFromImpact: 30, description: 'T+30, looking back at the wave moving away' },
   { name: 'wave-receding-far', phase: 7, kind: 'still', waveSecondsFromImpact: 100, description: 'T+100, the passed wave 20 km away' },
   { name: 'wave-previous-at-impact', phase: 7, kind: 'still', waveSecondsFromImpact: 234, description: 'Wave 2 at T-6, looking back: wave 1 is a small ridge about 47 km away' },
-  ...shipFromImpactShots,
+  ...shipFromLandingShots,
   { name: 'hero-clip', phase: 9, kind: 'sequence', waveSecondsFromImpact: -22, description: 'T-22 to T+8 at 60 fps on a virtual clock (hero-clip tool, later)' },
 ];
 

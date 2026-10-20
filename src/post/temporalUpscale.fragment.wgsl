@@ -108,7 +108,7 @@ fn resolveOutputPixel(outputUv: vec2f) -> vec3f {
     }
     let clippedHistory = clamp(rawHistory, lowerBound, upperBound);
     let travelInOutputPixels = length(motion * uniforms.outputSize);
-    let motionFade = 1.0 - clamp(travelInOutputPixels / 64.0, 0.0, 1.0) * 0.35;
+    let motionFade = 1.0 - clamp(travelInOutputPixels / 64.0, 0.0, 1.0) * 0.35 - smoothstep(64.0, 160.0, travelInOutputPixels) * 0.4;
     let clipFade = 1.0 - clamp(length(clippedHistory - rawHistory) * 4.0, 0.0, 1.0) * 0.45;
     let historyWeight = clamp(uniforms.feedback * motionFade * clipFade, 0.0, 0.97);
     let currentWeight = (1.0 - historyWeight) * mix(0.3, 1.0, nearestWeight);

@@ -7,7 +7,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 
 export const clipmapQuadsPerSide = 128;
-export const clipmapRingCount = 12;
+export const clipmapRingCount = 15;
 export const clipmapBaseSpacingMetres = 0.05;
 const holeShrinkCells = 3;
 const halfQuadsPerSide = clipmapQuadsPerSide / 2;
