@@ -1962,7 +1962,8 @@ export class MillersPlanetApp {
         const now = this.frameIndex / 60;
         const step = this.clock.lastDeltaSeconds;
         const surface = this.systemsEnabled.wave && wave.enabled ? wave.waterHeightAt(camera.x, camera.z) : -Infinity;
-        const depth = Number.isFinite(surface) ? surface - camera.y : Number.NaN;
+        const waveRisesAboveSea = surface > this.seaSurface.settings.waterLevelMetres;
+        const depth = waveRisesAboveSea ? surface - camera.y : Number.NaN;
         if (underwater !== this.cameraWasUnderwater && !this.forceUnderwaterForWarmUp) {
             this.lastWaterCrossingSeconds = now;
             if (this.rideState.active) {
