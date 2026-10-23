@@ -101,7 +101,9 @@ if (isMainModule) {
   }
   const allFiles = listFiles(distDirectory);
   const mapFiles = allFiles.filter((filePath) => filePath.endsWith('.map'));
-  const shippedFiles = allFiles.filter((filePath) => !filePath.endsWith('.map'));
+  const onDemandVideos = allFiles.filter((filePath) => filePath.endsWith('.mp4'));
+  const shippedFiles = allFiles.filter((filePath) => !filePath.endsWith('.map') && !filePath.endsWith('.mp4'));
+  if (onDemandVideos.length) console.log(`Videos served on request, not part of the page and not counted: ${onDemandVideos.map((filePath) => `${path.relative(distDirectory, filePath)} ${formatKilobytes(statSync(filePath).size)}`).join(', ')}`);
   const measured = shippedFiles.map((filePath) => ({ name: path.relative(distDirectory, filePath), ...measureFile(filePath) }));
   const totals = measured.reduce((sum, entry) => ({ rawBytes: sum.rawBytes + entry.rawBytes, gzipBytes: sum.gzipBytes + entry.gzipBytes, brotliBytes: sum.brotliBytes + entry.brotliBytes }), { rawBytes: 0, gzipBytes: 0, brotliBytes: 0 });
   const biggest = [...measured].sort((first, second) => second.brotliBytes - first.brotliBytes).slice(0, BIGGEST_COUNT);
