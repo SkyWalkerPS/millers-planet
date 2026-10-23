@@ -1,6 +1,8 @@
 # Miller's Planet
 
-**[▶ Play it in your browser: millers-planet.onrender.com](https://millers-planet.onrender.com)** · [Watch the trailer](https://millers-planet.onrender.com/millers-planet-trailer.mp4)
+**[▶ Play it in your browser: millers-planet.onrender.com](https://millers-planet.onrender.com)**
+
+https://github.com/user-attachments/assets/e0734a18-d1f2-4026-838d-3b3d8dc5f3e9
 
 A walkable, real-time recreation of the water planet from *Interstellar*, running in the browser on WebGPU. You wade through ankle-deep water under a grey overcast, with the black hole Gargantua hanging huge over the sea and a landed ship nearby. Every four minutes a wave 2.4 km tall rolls in, its crest glowing turquoise with Gargantua's light behind it; it sweeps you up its face, throws you over the crest and drops you on the far side, and the walk goes on. Two clocks show time on the planet and on Earth, where it runs 61,362 times faster. Everything you see and hear is generated in code: no texture, model, animation or sound files.
 
@@ -9,7 +11,7 @@ A walkable, real-time recreation of the water planet from *Interstellar*, runnin
 | | |
 |---|---|
 | ![The wave on the horizon, its crest lit from behind](media/wave-mountains.jpg) | ![The crest glowing turquoise in front of Gargantua](media/crest-glow.jpg) |
-| ![Thrown over the crest, 2.4 km above the sea](media/over-the-crest.jpg) | ![The passed wave rolling away](media/wave-receding.jpg) |
+| ![Wading through ankle-deep water toward Gargantua](media/wading.jpg) | ![The passed wave rolling away](media/wave-receding.jpg) |
 
 **Built on the work of Noniv (Maksymilian Dendura):** the character, sea, sky and post-processing techniques come from his [snowflow_demo](https://github.com/Noniv/snowflow_demo) and [web-ocean](https://github.com/Noniv/web-ocean) (both MIT). See [Credits](#credits).
 
